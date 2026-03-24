@@ -9,7 +9,6 @@ coverage/
 # Environment and secrets
 .env
 .env.*
-!.env.example
 .envrc
 .direnv/
 
