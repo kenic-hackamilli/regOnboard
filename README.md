@@ -14,18 +14,34 @@ Standalone registrar onboarding backend for dotKE.
 ## Run locally
 
 1. Copy `.env.example` to `.env`
-2. Set `DATABASE_URL`
-3. Run migrations
-
-```bash
-npm run db:migrate
-```
-
-4. Start the server
+2. Keep `DATABASE_URL` pointed at the local Postgres instance or set it to your managed database
+3. Start the backend
 
 ```bash
 npm run dev
 ```
+
+`npm run dev` and `npm start` now bootstrap the local Postgres cluster automatically when:
+
+- `DATABASE_URL` points to `localhost` or `127.0.0.1`
+- `LOCAL_DB_AUTO_START=true`
+
+On first boot, the app will initialize the local cluster if needed, start PostgreSQL, create the `onboard` database, and apply any pending migrations.
+
+## Database commands
+
+```bash
+npm run db:status
+npm run db:start
+npm run db:stop
+npm run db:migrate
+```
+
+## Production notes
+
+- `LOCAL_DB_AUTO_START` defaults to `false` when `NODE_ENV=production`
+- `AUTO_RUN_MIGRATIONS` defaults to `false` when `NODE_ENV=production`
+- In production, point `DATABASE_URL` at an external managed Postgres instance and run `npm run db:migrate` as part of deployment
 
 ## Key routes
 
@@ -45,3 +61,4 @@ npm run dev
 - The portal keeps in-progress edits in browser storage and only persists the full form to PostgreSQL when the applicant explicitly saves or submits.
 - Admin access is controlled with `ADMIN_API_TOKEN`.
 - Documents are stored inside PostgreSQL in a dedicated blob table.
+- `GET /health` returns live database connectivity details and responds with `503` if PostgreSQL is unavailable.

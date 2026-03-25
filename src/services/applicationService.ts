@@ -139,6 +139,9 @@ const assertApplicantType = (value: string): ApplicantType => {
   return value as ApplicantType;
 };
 
+const normalizeCountryKey = (value?: string | null) =>
+  value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
+
 const normalizeCountryOfIncorporation = (
   applicantType: ApplicantType,
   value?: string | null
@@ -155,6 +158,10 @@ const normalizeCountryOfIncorporation = (
 
   if (normalized.length > COUNTRY_OF_INCORPORATION_MAX_LENGTH) {
     throw new ApiError(400, "COUNTRY_OF_INCORPORATION_TOO_LONG");
+  }
+
+  if (normalizeCountryKey(normalized) === "kenya") {
+    throw new ApiError(400, "COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL");
   }
 
   return normalized;

@@ -1,43 +1,24 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Client } from "pg";
-import dotenv from "dotenv";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const migrationsDir = path.resolve(__dirname, "../db/migrations");
-
-dotenv.config();
+import { getDatabaseTarget, waitForDatabase } from "../src/config/dbRuntime.js";
+import { env } from "../src/config/env.js";
+import { runMigrations } from "../src/config/migrations.js";
 
 const run = async () => {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required to run migrations.");
+  const target = getDatabaseTarget();
+
+  // eslint-disable-next-line no-console
+  console.log(`Waiting for PostgreSQL at ${target.host}:${target.port}/${target.database}...`);
+  await waitForDatabase(env.DATABASE_URL, env.DB_START_TIMEOUT_MS);
+
+  const summary = await runMigrations(env.DATABASE_URL);
+
+  if (summary.applied.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`Applied ${summary.applied.length} migration(s): ${summary.applied.join(", ")}`);
+    return;
   }
 
-  const client = new Client({ connectionString: databaseUrl });
-  await client.connect();
-
-  try {
-    const files = fs.readdirSync(migrationsDir)
-      .filter((file) => file.endsWith(".sql"))
-      .sort();
-
-    for (const file of files) {
-      const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
-      await client.query("BEGIN");
-      await client.query(sql);
-      await client.query("COMMIT");
-      // eslint-disable-next-line no-console
-      console.log("Applied", file);
-    }
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    await client.end();
-  }
+  // eslint-disable-next-line no-console
+  console.log(`Migrations already up to date (${summary.total} tracked).`);
 };
 
 run().catch((err) => {

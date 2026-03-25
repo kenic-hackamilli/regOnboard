@@ -9,19 +9,56 @@ export const renderPortalPage = () => {
     <section class="start-panel">
       <div class="start-intro">
         <div class="section-kicker">Registrar Application</div>
-        <h2>Submit your application</h2>
-        <p>Provide the required applicant, business, technical, and declaration details for review. Your entries stay in this browser while you work, and you can submit the completed application when ready.</p>
+        <h2>Start your registrar application</h2>
+        <p>Select the registrar type once, confirm the country of incorporation where needed, then continue directly to Section A and complete the form for review.</p>
       </div>
 
       <div class="row">
-        <label>
-          Applicant Type<span class="required-mark">*</span>
-          <select id="applicantType">
+        <div class="field-block applicant-type-field">
+          <div>Applicant Type<span class="required-mark">*</span></div>
+          <select id="applicantType" class="visually-hidden-control" tabindex="-1" aria-hidden="true">
             <option value="local">Local Registrar</option>
             <option value="international">International Registrar</option>
           </select>
+          <button
+            id="applicantTypeTrigger"
+            type="button"
+            class="palette-trigger"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="applicantTypeDialog"
+          >
+            <span class="palette-trigger-kicker">Registrar type</span>
+            <strong id="applicantTypeDisplay">Local Registrar</strong>
+            <span id="applicantTypeSummary" class="palette-trigger-summary">Kenya is used automatically for local applications.</span>
+            <span class="palette-trigger-action">Choose registrar type</span>
+          </button>
           <span id="applicantTypeHint" class="hint">Local applications use Kenya.</span>
-        </label>
+          <dialog id="applicantTypeDialog" class="palette-dialog" aria-labelledby="applicantTypeDialogTitle">
+            <div class="palette-dialog-shell">
+              <div class="palette-dialog-header">
+                <div class="section-kicker">Applicant Profile</div>
+                <h3 id="applicantTypeDialogTitle">Choose registrar type</h3>
+                <p>Select the profile that best matches this application. You can switch it any time before the application starts.</p>
+              </div>
+              <div class="palette-options">
+                <button type="button" class="palette-option" data-applicant-type-option="local" aria-pressed="true">
+                  <span class="palette-option-badge">Local</span>
+                  <strong>Local Registrar</strong>
+                  <p>Best for Kenya-based applicants. Kenya is filled automatically and the phone guidance stays local-friendly.</p>
+                </button>
+                <button type="button" class="palette-option" data-applicant-type-option="international" aria-pressed="false">
+                  <span class="palette-option-badge">International</span>
+                  <strong>International Registrar</strong>
+                  <p>Best for applicants outside Kenya. You will choose the country of incorporation and get international phone guidance.</p>
+                </button>
+              </div>
+              <div class="palette-dialog-footer">
+                <button id="applicantTypeClose" type="button" class="ghost">Close</button>
+              </div>
+            </div>
+          </dialog>
+        </div>
         <label>
           Country of Incorporation
           <input
@@ -29,10 +66,11 @@ export const renderPortalPage = () => {
             list="countrySuggestions"
             maxlength="${COUNTRY_OF_INCORPORATION_MAX_LENGTH}"
             autocomplete="country-name"
-            placeholder="Search country"
+            placeholder="Type to search for a country"
           />
           <datalist id="countrySuggestions"></datalist>
-          <span id="countryOfIncorporationHint" class="hint">Search and select the country before starting the application.</span>
+          <span id="countryOfIncorporationHint" class="hint">Start typing to search for the country of incorporation.</span>
+          <span id="countrySearchFeedback" class="hint">Matching countries will appear as you type.</span>
         </label>
       </div>
 
@@ -40,54 +78,30 @@ export const renderPortalPage = () => {
         <div class="activation-copy">
           <div id="activationIndicator" class="activation-badge" aria-hidden="true">1</div>
           <div class="activation-copy-body">
-            <div class="section-kicker">Step 1</div>
-            <h2>Proceed to application</h2>
-            <p>Select the applicant profile details above, then continue to open the application flow below.</p>
+            <div class="section-kicker">Next Step</div>
+            <h2>Continue with Section A</h2>
+            <p>Your registrar type and country are used throughout the form and become fixed once the application starts.</p>
           </div>
         </div>
         <div class="activation-actions">
-          <button id="proceedApplicationButton" type="button" class="activation-start">Proceed to Application</button>
-          <div id="activationHint" class="hint">Choose the applicant type and country, then continue.</div>
+          <div id="activationHint" class="hint">Set the registrar type and country above, then continue below with Section A.</div>
+          <div class="profile-summary-grid">
+            <div class="profile-summary-card">
+              <span>Registrar Type</span>
+              <strong id="applicationProfileApplicantType">Local Registrar</strong>
+            </div>
+            <div class="profile-summary-card">
+              <span>Country</span>
+              <strong id="applicationProfileCountry">Kenya</strong>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="flash" id="flashBox">Choose the applicant type and country, then continue.</div>
+      <div class="flash" id="flashBox">Continue below with Section A: General Information.</div>
     </section>
 
-    <div id="applicationFlow" class="application-flow is-locked">
-      <section class="application-section">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Application Profile</div>
-            <h2>Before you continue</h2>
-            <p>Review the application setup and what you are agreeing to provide through this submission.</p>
-          </div>
-          <div class="section-main">
-            <div class="profile-summary-grid">
-              <div class="profile-summary-card">
-                <span>Applicant Type</span>
-                <strong id="applicationProfileApplicantType">Local Registrar</strong>
-                <p>This profile will be used for the current application.</p>
-              </div>
-              <div class="profile-summary-card">
-                <span>Country</span>
-                <strong id="applicationProfileCountry">Kenya</strong>
-                <p>Country of incorporation for the applicant.</p>
-              </div>
-            </div>
-
-            <div class="note-block">
-              <div class="note-label">Before You Continue</div>
-              <div class="note-list">
-                <div class="note-item">Provide complete and accurate registrar information in Sections A to F.</div>
-                <div class="note-item">Section F acts as your declaration and submission confirmation.</div>
-                <div class="note-item">Supporting document uploads are being prepared and will be added in a later update.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
+    <div id="applicationFlow" class="application-flow">
       <section class="application-section">
         <div class="application-shell">
           <div class="section-rail">
@@ -276,8 +290,8 @@ export const renderPortalPage = () => {
             <div class="declaration-box">
               <div class="declaration-item">All information contained in this application form and supporting documents is true and accurate to the best of my knowledge.</div>
               <div class="declaration-item">I have read and understood KeNIC's Registrar Agreement and Published Policies.</div>
-              <div class="declaration-item">I give KeNIC permission to perform a background search on me or my company.</div>
-              <div class="declaration-item">I give KeNIC permission to contact third parties, investigate, request and obtain additional information, and verify the information contained in this application.</div>
+              <div class="declaration-item">I understand KeNIC may carry out due diligence and verify the information provided in this application.</div>
+              <div class="declaration-item">I give KeNIC permission to contact third parties, request additional information where necessary, and verify the information contained in this application.</div>
               <div class="declaration-item">I waive liability on the part of KeNIC for its actions in verifying the information provided, and on the part of any third parties who provide truthful, material, relevant information as requested.</div>
             </div>
             <form data-section="SECTION_F_DECLARATION">
@@ -300,13 +314,13 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section G</div>
             <h2>Supporting Documents</h2>
-            <p>Update in progress.</p>
+            <p>Upload services are temporarily unavailable.</p>
           </div>
           <div class="section-main">
             <div class="info-box compact">
               <div class="stack">
-                <strong>Supporting document uploads are being prepared.</strong>
-                <div class="subtle">This section is still being updated. You can proceed to submit your application for review once Sections A to F are complete.</div>
+                <strong>Form upload services are currently unavailable.</strong>
+                <div class="subtle">Update in progress. Please continue with submission.</div>
               </div>
             </div>
           </div>
@@ -322,8 +336,8 @@ export const renderPortalPage = () => {
           </div>
           <div class="section-main">
             <div class="submission-box">
-              <div class="subtle">Once submitted, we will confirm here that the application has been received.</div>
-              <div id="submissionFeedback" class="submission-feedback" aria-live="polite">Complete the form above, then submit your application.</div>
+              <div class="subtle">Review the completed form and submit when you are ready.</div>
+              <div id="submissionFeedback" class="submission-feedback" aria-live="polite">Complete the form below and submit when you are ready.</div>
               <div class="toolbar">
                 <button id="submitApplicationButton" type="button" disabled>Submit</button>
               </div>
@@ -337,6 +351,7 @@ export const renderPortalPage = () => {
   const scripts = `
     const stateKey = "dotke.onboard.portal";
     const draftStateKeyPrefix = stateKey + ".draft.";
+    const pendingDraftStorageKey = draftStateKeyPrefix + "pending";
     const fieldMaxLengths = ${JSON.stringify(SECTION_FIELD_MAX_LENGTHS)};
     const state = { applicationId: "", draftToken: "", resumeToken: "", resumeCode: "" };
     let latestBundle = getEmptyBundle();
@@ -347,17 +362,25 @@ export const renderPortalPage = () => {
     let localDraftSaveTimer = null;
 
     const flashBox = document.getElementById("flashBox");
-    const proceedApplicationButton = document.getElementById("proceedApplicationButton");
     const activationIndicator = document.getElementById("activationIndicator");
     const activationHint = document.getElementById("activationHint");
     const applicationFlow = document.getElementById("applicationFlow");
     const submitApplicationButton = document.getElementById("submitApplicationButton");
     const submissionFeedback = document.getElementById("submissionFeedback");
     const applicantTypeInput = document.getElementById("applicantType");
+    const applicantTypeTrigger = document.getElementById("applicantTypeTrigger");
+    const applicantTypeDisplay = document.getElementById("applicantTypeDisplay");
+    const applicantTypeSummary = document.getElementById("applicantTypeSummary");
     const applicantTypeHint = document.getElementById("applicantTypeHint");
+    const applicantTypeDialog = document.getElementById("applicantTypeDialog");
+    const applicantTypeClose = document.getElementById("applicantTypeClose");
+    const applicantTypeOptionButtons = Array.from(
+      document.querySelectorAll("[data-applicant-type-option]")
+    );
     const countryOfIncorporationInput = document.getElementById("countryOfIncorporation");
     const countrySuggestions = document.getElementById("countrySuggestions");
     const countryOfIncorporationHint = document.getElementById("countryOfIncorporationHint");
+    const countrySearchFeedback = document.getElementById("countrySearchFeedback");
     const applicationProfileApplicantType = document.getElementById("applicationProfileApplicantType");
     const applicationProfileCountry = document.getElementById("applicationProfileCountry");
     const phoneFieldDecorators = [
@@ -568,6 +591,9 @@ export const renderPortalPage = () => {
       "Zimbabwe",
     ];
 
+    const COUNTRY_MATCH_LIMIT = 8;
+    const COUNTRY_PREVIEW_LIMIT = 4;
+
     function isRecord(value) {
       return Boolean(value) && typeof value === "object" && !Array.isArray(value);
     }
@@ -626,7 +652,7 @@ export const renderPortalPage = () => {
     }
 
     function getDraftStorageKey(applicationId = state.applicationId) {
-      return applicationId ? draftStateKeyPrefix + applicationId : "";
+      return applicationId ? draftStateKeyPrefix + applicationId : pendingDraftStorageKey;
     }
 
     function loadLocalDraft(applicationId = state.applicationId) {
@@ -650,18 +676,31 @@ export const renderPortalPage = () => {
 
     function clearLocalDraft(applicationId = state.applicationId) {
       const draftKey = getDraftStorageKey(applicationId);
-      if (!draftKey) {
-        return;
-      }
 
       try {
         localStorage.removeItem(draftKey);
       } catch {}
     }
 
+    function movePendingDraftToApplicationDraft(applicationId) {
+      if (!applicationId) {
+        return;
+      }
+
+      const pendingDraft = loadLocalDraft("");
+      if (!pendingDraft) {
+        return;
+      }
+
+      try {
+        localStorage.setItem(getDraftStorageKey(applicationId), JSON.stringify(pendingDraft));
+        localStorage.removeItem(pendingDraftStorageKey);
+      } catch {}
+    }
+
     function persistLocalDraftNow() {
       const draftKey = getDraftStorageKey();
-      if (!draftKey || !state.applicationId) {
+      if (!draftKey) {
         return;
       }
 
@@ -669,6 +708,10 @@ export const renderPortalPage = () => {
         localStorage.setItem(
           draftKey,
           JSON.stringify({
+            profile: {
+              applicantType: applicantTypeInput?.value || "local",
+              countryOfIncorporation: String(countryOfIncorporationInput?.value || "").trim(),
+            },
             sections: readAllSections(),
             updatedAt: new Date().toISOString(),
           })
@@ -677,7 +720,7 @@ export const renderPortalPage = () => {
     }
 
     function scheduleLocalDraftSave() {
-      if (!state.applicationId || !formsEnabled) {
+      if (!formsEnabled) {
         return;
       }
 
@@ -730,14 +773,132 @@ export const renderPortalPage = () => {
       return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
     }
 
-    function populateCountrySuggestions() {
+    function isKenyaCountry(value) {
+      return normalizeCountryName(value) === "kenya";
+    }
+
+    function isBlockedInternationalCountry(value) {
+      return applicantTypeInput?.value === "international"
+        && isKenyaCountry(resolveCountryOption(value, true) || value);
+    }
+
+    function getSelectableCountryOptions() {
+      return applicantTypeInput?.value === "international"
+        ? COUNTRY_OPTIONS.filter((country) => !isKenyaCountry(country))
+        : COUNTRY_OPTIONS;
+    }
+
+    function getCountryMatches(query = "") {
+      const normalized = normalizeCountryName(query);
+      if (!normalized) {
+        return getSelectableCountryOptions();
+      }
+
+      const aliasTarget = COUNTRY_PROFILE_ALIASES[normalized] || "";
+      const startsWith = [];
+      const contains = [];
+
+      getSelectableCountryOptions().forEach((country) => {
+        const countryKey = normalizeCountryName(country);
+        if (aliasTarget && countryKey === aliasTarget) {
+          startsWith.unshift(country);
+          return;
+        }
+
+        if (countryKey.startsWith(normalized)) {
+          startsWith.push(country);
+          return;
+        }
+
+        if (countryKey.includes(normalized)) {
+          contains.push(country);
+        }
+      });
+
+      return [...new Set([...startsWith, ...contains])];
+    }
+
+    function resolveCountryOption(value, allowBlockedMatch = false) {
+      const normalized = normalizeCountryName(value);
+      if (!normalized) {
+        return "";
+      }
+
+      const aliasTarget = COUNTRY_PROFILE_ALIASES[normalized] || normalized;
+
+      if (!allowBlockedMatch && applicantTypeInput?.value === "international" && isKenyaCountry(aliasTarget)) {
+        return "";
+      }
+
+      return getSelectableCountryOptions().find((country) => normalizeCountryName(country) === aliasTarget) || "";
+    }
+
+    function updateCountrySuggestions(query = "") {
       if (!countrySuggestions) {
         return;
       }
 
-      countrySuggestions.innerHTML = COUNTRY_OPTIONS
+      const options = getCountryMatches(query).slice(0, COUNTRY_MATCH_LIMIT);
+      countrySuggestions.innerHTML = options
         .map((country) => '<option value="' + country + '"></option>')
         .join("");
+    }
+
+    function updateCountrySearchFeedback() {
+      if (!countrySearchFeedback) {
+        return;
+      }
+
+      if (applicantTypeInput?.value === "local") {
+        countrySearchFeedback.textContent = "Kenya is used automatically for local applications.";
+        return;
+      }
+
+      const rawValue = String(countryOfIncorporationInput?.value || "").trim();
+      if (!rawValue) {
+        countrySearchFeedback.textContent = "Matching countries will appear as you type. Kenya is reserved for local applications.";
+        return;
+      }
+
+      if (isBlockedInternationalCountry(rawValue)) {
+        countrySearchFeedback.textContent = "Kenya is only available for local registrar applications.";
+        return;
+      }
+
+      const resolvedCountry = resolveCountryOption(rawValue);
+      if (resolvedCountry) {
+        countrySearchFeedback.textContent = "Selected country: " + resolvedCountry + ".";
+        return;
+      }
+
+      const matches = getCountryMatches(rawValue);
+      if (matches.length === 0) {
+        countrySearchFeedback.textContent = "No close country match found yet. Continue typing the full country name.";
+        return;
+      }
+
+      const preview = matches.slice(0, COUNTRY_PREVIEW_LIMIT).join(", ");
+      countrySearchFeedback.textContent =
+        "Matching countries: "
+        + preview
+        + (matches.length > COUNTRY_PREVIEW_LIMIT ? ", ..." : ".");
+    }
+
+    function normalizeCountrySelection() {
+      if (!countryOfIncorporationInput || applicantTypeInput?.value === "local") {
+        return "";
+      }
+
+      const resolvedCountry = resolveCountryOption(countryOfIncorporationInput.value);
+      if (resolvedCountry) {
+        countryOfIncorporationInput.value = resolvedCountry;
+      }
+
+      updateCountrySuggestions(countryOfIncorporationInput.value);
+      updateCountrySearchFeedback();
+      updateApplicationProfileSummary();
+
+      return String(countryOfIncorporationInput.value || "").trim();
     }
 
     function applyFieldMaxLengths() {
@@ -787,7 +948,10 @@ export const renderPortalPage = () => {
         return COUNTRY_PROFILES.kenya;
       }
 
-      const normalized = normalizeCountryName(countryOfIncorporationInput?.value);
+      const normalized = normalizeCountryName(resolveCountryOption(countryOfIncorporationInput?.value) || countryOfIncorporationInput?.value);
+      if (isKenyaCountry(normalized)) {
+        return null;
+      }
       const mapped = COUNTRY_PROFILE_ALIASES[normalized] || normalized;
       return COUNTRY_PROFILES[mapped] || null;
     }
@@ -869,14 +1033,89 @@ export const renderPortalPage = () => {
       return value === "international" ? "International Registrar" : "Local Registrar";
     }
 
+    function getApplicantTypeSummary(value) {
+      return value === "international"
+        ? "Choose a country of incorporation other than Kenya and continue with international guidance."
+        : "Kenya is filled automatically and the local guidance is applied.";
+    }
+
+    function closeApplicantTypePalette() {
+      if (applicantTypeTrigger) {
+        applicantTypeTrigger.setAttribute("aria-expanded", "false");
+      }
+
+      if (!applicantTypeDialog?.open) {
+        return;
+      }
+
+      applicantTypeDialog.close();
+    }
+
+    function syncApplicantTypePalette() {
+      const value = applicantTypeInput?.value === "international" ? "international" : "local";
+
+      if (applicantTypeDisplay) {
+        applicantTypeDisplay.textContent = getApplicantTypeLabel(value);
+      }
+
+      if (applicantTypeSummary) {
+        applicantTypeSummary.textContent = getApplicantTypeSummary(value);
+      }
+
+      if (applicantTypeTrigger) {
+        applicantTypeTrigger.dataset.value = value;
+        applicantTypeTrigger.disabled = Boolean(applicantTypeInput?.disabled);
+      }
+
+      applicantTypeOptionButtons.forEach((button) => {
+        const selected = button.getAttribute("data-applicant-type-option") === value;
+        button.dataset.selected = selected ? "true" : "false";
+        button.setAttribute("aria-pressed", selected ? "true" : "false");
+      });
+    }
+
+    function openApplicantTypePalette() {
+      if (!applicantTypeDialog || !applicantTypeTrigger || applicantTypeTrigger.disabled) {
+        return;
+      }
+
+      applicantTypeTrigger.setAttribute("aria-expanded", "true");
+
+      if (typeof applicantTypeDialog.showModal === "function") {
+        applicantTypeDialog.showModal();
+        return;
+      }
+
+      applicantTypeDialog.setAttribute("open", "open");
+    }
+
+    function setApplicantTypeValue(value) {
+      if (!applicantTypeInput) {
+        return;
+      }
+
+      const nextValue = value === "international" ? "international" : "local";
+      if (applicantTypeInput.value !== nextValue) {
+        applicantTypeInput.value = nextValue;
+        applicantTypeInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      syncApplicantTypePalette();
+      closeApplicantTypePalette();
+    }
+
     function updateApplicationProfileSummary() {
       if (applicationProfileApplicantType) {
         applicationProfileApplicantType.textContent = getApplicantTypeLabel(applicantTypeInput?.value);
       }
 
+      const rawCountry = String(countryOfIncorporationInput?.value || "").trim();
+      const resolvedCountry = resolveCountryOption(countryOfIncorporationInput?.value);
       const countryLabel = applicantTypeInput?.value === "local"
         ? "Kenya"
-        : String(countryOfIncorporationInput?.value || "").trim() || "Select country to continue";
+        : isBlockedInternationalCountry(rawCountry)
+          ? "Choose another country"
+          : resolvedCountry || rawCountry || "Select country before submission";
 
       if (applicationProfileCountry) {
         applicationProfileCountry.textContent = countryLabel;
@@ -903,13 +1142,16 @@ export const renderPortalPage = () => {
 
       applicantTypeInput.disabled = lockIdentity;
       countryOfIncorporationInput.disabled = lockIdentity || isLocal;
+      if (applicantTypeTrigger) {
+        applicantTypeTrigger.disabled = lockIdentity;
+      }
 
       if (applicantTypeHint) {
         applicantTypeHint.textContent = lockIdentity
           ? "Applicant type is fixed after the application starts."
           : isLocal
-            ? "Local applications use Kenya."
-            : "Choose the applicant type before starting the application.";
+            ? "Soft local profile selected. Kenya is used automatically."
+            : "International profile selected. Choose the country of incorporation.";
       }
 
       if (countryOfIncorporationHint) {
@@ -917,10 +1159,13 @@ export const renderPortalPage = () => {
           ? "Country of incorporation is fixed for the current application."
           : isLocal
             ? "Local applications use Kenya."
-            : "Set the country before starting the application.";
+            : "Type to search and select the country of incorporation. Kenya is reserved for local applications.";
       }
 
+      updateCountrySuggestions(countryOfIncorporationInput.value);
+      updateCountrySearchFeedback();
       refreshPhoneFieldDecorators();
+      syncApplicantTypePalette();
       updateApplicationProfileSummary();
     }
 
@@ -958,29 +1203,26 @@ export const renderPortalPage = () => {
       const status = bundle?.application?.status || "";
 
       if (status === "submitted" || status === "in_review") {
-        setSubmissionFeedback(
-          "Application received. We will review it and share the next update here.",
-          "success"
-        );
+        setSubmissionFeedback("Application submitted successfully.", "success");
         return;
       }
 
       if (status === "approved") {
-        setSubmissionFeedback("Application review is complete.", "success");
+        setSubmissionFeedback("Application processing is complete.", "success");
         return;
       }
 
       if (status === "rejected") {
-        setSubmissionFeedback("Application review is complete. Please check the review outcome.", "error");
+        setSubmissionFeedback("Application processing is complete. Please contact KeNIC for guidance.", "error");
         return;
       }
 
       if (status === "changes_requested") {
-        setSubmissionFeedback("Updates are required before you submit again.", "info");
+        setSubmissionFeedback("We need a few updates before you submit again.", "info");
         return;
       }
 
-      setSubmissionFeedback("Complete the form above, then submit your application.", "info");
+      setSubmissionFeedback("Complete the form below and submit when you are ready.", "info");
     }
 
     function updateActionButtons() {
@@ -1021,49 +1263,45 @@ export const renderPortalPage = () => {
 
     function setActivationState(nextState = "idle") {
       activationIndicator?.classList.remove("is-active", "is-busy");
-      proceedApplicationButton?.classList.remove("is-active", "is-busy");
-
-      if (!proceedApplicationButton) {
-        return;
-      }
 
       if (nextState === "activating") {
-        proceedApplicationButton.disabled = true;
-        proceedApplicationButton.classList.add("is-busy");
         activationIndicator?.classList.add("is-busy");
-        proceedApplicationButton.textContent = "Opening...";
+        if (activationIndicator) {
+          activationIndicator.textContent = "…";
+        }
         if (activationHint) {
-          activationHint.textContent = "Starting your application...";
+          activationHint.textContent = "Preparing the application with the selected profile...";
         }
         return;
       }
 
       if (nextState === "active") {
-        proceedApplicationButton.disabled = true;
-        proceedApplicationButton.classList.add("is-active");
         activationIndicator?.classList.add("is-active");
-        proceedApplicationButton.textContent = "Application Open";
+        if (activationIndicator) {
+          activationIndicator.textContent = "2";
+        }
         if (activationHint) {
-          activationHint.textContent = "The application has started. Complete the sections below.";
+          activationHint.textContent = "Profile locked. Continue filling Sections A to F below.";
         }
         return;
       }
 
       if (nextState === "readonly") {
-        proceedApplicationButton.disabled = true;
-        proceedApplicationButton.classList.add("is-active");
         activationIndicator?.classList.add("is-active");
-        proceedApplicationButton.textContent = "Application Submitted";
+        if (activationIndicator) {
+          activationIndicator.textContent = "3";
+        }
         if (activationHint) {
-          activationHint.textContent = "This application has already been submitted and is now read-only.";
+          activationHint.textContent = "This submitted application is read-only in this view.";
         }
         return;
       }
 
-      proceedApplicationButton.disabled = false;
-      proceedApplicationButton.textContent = "Proceed to Application";
+      if (activationIndicator) {
+        activationIndicator.textContent = "1";
+      }
       if (activationHint) {
-        activationHint.textContent = "Choose the applicant type and country, then continue.";
+        activationHint.textContent = "Set the registrar type and country above, then continue below with Section A.";
       }
     }
 
@@ -1096,12 +1334,13 @@ export const renderPortalPage = () => {
 
     function resetLockedPortal() {
       resetPortalStateForNewApplication();
-      setFormsEnabled(false);
+      setFormsEnabled(true);
       setSavingState(false);
       setSubmittingState(false);
       setActivationState("idle");
-      setFlowVisualState("locked");
+      setFlowVisualState("active");
       syncCountryFieldState(false);
+      syncSubmissionFeedback(getEmptyBundle());
     }
 
     function clearStoredApplicationState() {
@@ -1298,7 +1537,11 @@ export const renderPortalPage = () => {
 
     function getReviewStatusMessage(status) {
       if (status === "submitted" || status === "in_review") {
-        return "Application received and is in review. Await further communication.";
+        return "Application submitted successfully.";
+      }
+
+      if (status === "changes_requested") {
+        return "We have reviewed your application and need a few updates before the next submission.";
       }
 
       return "";
@@ -1337,7 +1580,9 @@ export const renderPortalPage = () => {
         INVALID_APPLICATION_FORM_PAYLOAD:
           "We could not read the application form. Refresh the page and try again.",
         COUNTRY_OF_INCORPORATION_REQUIRED:
-          "Select the country of incorporation before starting an international application.",
+          "Select the country of incorporation before submitting an international application.",
+        COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL:
+          "Kenya is only allowed for local registrar applications. Choose a different country for an international registrar.",
         COUNTRY_OF_INCORPORATION_TOO_LONG:
           "Country of incorporation is too long. Search and select a shorter country name.",
         APPLICATION_ALREADY_SUBMITTED:
@@ -1448,16 +1693,69 @@ export const renderPortalPage = () => {
       };
     }
 
+    async function ensureApplicationStarted() {
+      if (state.applicationId) {
+        return false;
+      }
+
+      const applicantType = applicantTypeInput?.value || "local";
+      const country = normalizeCountrySelection();
+
+      if (applicantType === "international" && isBlockedInternationalCountry(country)) {
+        throw new Error("COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL");
+      }
+
+      if (applicantType === "international" && !country) {
+        throw new Error("COUNTRY_OF_INCORPORATION_REQUIRED");
+      }
+
+      setActivationState("activating");
+      const result = await request("/onboard/v1/public/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          applicantType,
+          countryOfIncorporation: country || null,
+        }),
+      });
+
+      state.applicationId = result.application.id;
+      state.draftToken = result.draftToken;
+      state.resumeToken = result.resumeToken;
+      state.resumeCode = result.resumeCode;
+      saveState();
+      movePendingDraftToApplicationDraft(state.applicationId);
+
+      latestBundle = normalizeBundle({
+        application: result.application,
+        checklist: result.checklist,
+        sections: Array.isArray(result.checklist?.sections)
+          ? result.checklist.sections.map((section) => ({
+              sectionCode: section.sectionCode,
+              data: {},
+              isComplete: section.isComplete,
+              validationErrors: section.validationErrors,
+            }))
+          : [],
+        documents: [],
+      });
+
+      syncCountryFieldState(true);
+      setFlowVisualState("active");
+      setFormsEnabled(true);
+      setActivationState("active");
+      persistLocalDraftNow();
+      updateSectionStatuses(latestBundle);
+
+      return true;
+    }
+
     function bindDraftTracking() {
       document.querySelectorAll("[data-section]").forEach((form) => {
         const sectionCode = form.getAttribute("data-section");
         if (!sectionCode) return;
 
         const syncSection = () => {
-          if (!state.applicationId) {
-            return;
-          }
-
           const data = readSection(sectionCode);
           setSectionStatus(
             sectionCode,
@@ -1547,68 +1845,18 @@ export const renderPortalPage = () => {
       }
     }
 
-    proceedApplicationButton?.addEventListener("click", async () => {
-      if (state.applicationId) {
-        return;
-      }
-
-      try {
-        clearStoredApplicationState();
-        syncCountryFieldState(false);
-
-        const applicantType = applicantTypeInput.value;
-        const country = countryOfIncorporationInput.value;
-
-        if (applicantType === "international" && !String(country || "").trim()) {
-          setFlash("Select the country of incorporation before starting an international application.", true);
-          return;
-        }
-
-        setActivationState("activating");
-        const result = await request("/onboard/v1/public/applications", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            applicantType,
-            countryOfIncorporation: country || null,
-          }),
-        });
-
-        resetPortalStateForNewApplication();
-        state.applicationId = result.application.id;
-        state.draftToken = result.draftToken;
-        state.resumeToken = result.resumeToken;
-        state.resumeCode = result.resumeCode;
-        saveState();
-        persistLocalDraftNow();
-        await hydrate("Application started. Complete the form and submit it for review when ready.");
-      } catch (error) {
-        if (error && error.message === "INVALID_OR_EXPIRED_DRAFT_TOKEN") {
-          clearStoredApplicationState();
-        } else {
-          setActivationState("idle");
-        }
-
-        setFlash(
-          getFriendlyErrorMessage(error, "We could not start the application. Please try again."),
-          true
-        );
-      }
-    });
-
     submitApplicationButton?.addEventListener("click", async () => {
       if (savingApplication || submittingApplication) {
         return;
       }
 
       try {
+        setSubmittingState(true);
         if (!state.applicationId) {
-          setFlash("Start the application first.", true);
-          return;
+          await ensureApplicationStarted();
         }
 
-        setSubmittingState(true);
-        setFlash("Submitting your application for review. Please wait...");
+        setFlash("Submitting your application. Please wait...");
         setSubmissionFeedback("Submitting your application. Please wait...", "info");
         await request("/onboard/v1/public/applications/" + state.applicationId + "/submit", {
           method: "POST",
@@ -1616,9 +1864,13 @@ export const renderPortalPage = () => {
           body: JSON.stringify(buildApplicationPayload()),
         });
         clearLocalDraft(state.applicationId);
-        await hydrate("Application received and is in review. Await further communication.");
+        await hydrate("Application submitted successfully.");
       } catch (error) {
         setSubmittingState(false);
+
+        if (!state.applicationId) {
+          setActivationState("idle");
+        }
 
         if (error && error.message === "APPLICATION_ALREADY_SUBMITTED") {
           try {
@@ -1630,9 +1882,9 @@ export const renderPortalPage = () => {
             setSavingState(false);
             setActivationState("readonly");
             setFlowVisualState("readonly");
-            setFlash("Application received and is in review. Await further communication.", "success");
+            setFlash("Application submitted successfully.", "success");
             setSubmissionFeedback(
-              "Application received. We will review it and share the next update here.",
+              "Application submitted successfully.",
               "success"
             );
             if (submitApplicationButton) {
@@ -1664,17 +1916,51 @@ export const renderPortalPage = () => {
     });
 
     async function initializePortal() {
-      populateCountrySuggestions();
+      updateCountrySuggestions();
       applyFieldMaxLengths();
       bindInputNormalization();
       bindDraftTracking();
 
+      applicantTypeTrigger?.addEventListener("click", () => {
+        openApplicantTypePalette();
+      });
+
+      applicantTypeClose?.addEventListener("click", () => {
+        closeApplicantTypePalette();
+      });
+
+      applicantTypeDialog?.addEventListener("close", () => {
+        applicantTypeTrigger?.setAttribute("aria-expanded", "false");
+      });
+
+      applicantTypeDialog?.addEventListener("click", (event) => {
+        if (event.target === applicantTypeDialog) {
+          closeApplicantTypePalette();
+        }
+      });
+
+      applicantTypeOptionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          setApplicantTypeValue(button.getAttribute("data-applicant-type-option"));
+        });
+      });
+
       applicantTypeInput?.addEventListener("change", () => {
         syncCountryFieldState(Boolean(state.applicationId));
+        scheduleLocalDraftSave();
       });
 
       countryOfIncorporationInput?.addEventListener("input", () => {
+        updateCountrySuggestions(countryOfIncorporationInput.value);
+        updateCountrySearchFeedback();
         refreshPhoneFieldDecorators();
+        updateApplicationProfileSummary();
+        scheduleLocalDraftSave();
+      });
+
+      countryOfIncorporationInput?.addEventListener("blur", () => {
+        normalizeCountrySelection();
+        scheduleLocalDraftSave();
       });
 
       phoneFieldDecorators.forEach((field) => {
@@ -1704,7 +1990,36 @@ export const renderPortalPage = () => {
       }
 
       resetLockedPortal();
-      setFlash("Choose the applicant type and country, then continue.");
+      const pendingDraft = loadLocalDraft();
+      if (pendingDraft && isRecord(pendingDraft.sections)) {
+        if (isRecord(pendingDraft.profile)) {
+          if (applicantTypeInput && typeof pendingDraft.profile.applicantType === "string") {
+            applicantTypeInput.value =
+              pendingDraft.profile.applicantType === "international" ? "international" : "local";
+          }
+
+          if (
+            countryOfIncorporationInput
+            && typeof pendingDraft.profile.countryOfIncorporation === "string"
+          ) {
+            countryOfIncorporationInput.value = pendingDraft.profile.countryOfIncorporation;
+            countryOfIncorporationInput.dataset.autoLocal =
+              normalizeCountryName(pendingDraft.profile.countryOfIncorporation) === "kenya"
+                ? "true"
+                : "false";
+          }
+        }
+
+        syncCountryFieldState(false);
+        Object.keys(pendingDraft.sections).forEach((sectionCode) => {
+          fillSection(sectionCode, pendingDraft.sections[sectionCode]);
+        });
+        updateSectionStatuses(latestBundle);
+        setFlash("Restored your saved in-progress draft.");
+        return;
+      }
+
+      setFlash("Continue below with Section A: General Information.");
     }
 
     void initializePortal();

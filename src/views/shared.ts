@@ -275,16 +275,194 @@ form { display: grid; gap: 16px; }
   gap: 14px;
   grid-template-columns: 1fr;
 }
-label {
+label,
+.field-block {
   display: grid;
   gap: 10px;
   font-size: 14px;
   font-weight: 600;
   color: var(--gray800);
 }
+label {
+  margin: 0;
+}
 .required-mark {
   color: var(--primary);
   margin-left: 4px;
+}
+.visually-hidden-control {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.applicant-type-field {
+  position: relative;
+}
+.palette-trigger,
+button.palette-trigger,
+.button.palette-trigger {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  width: 100%;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(52,58,64,0.08);
+  background:
+    radial-gradient(circle at top right, rgba(0,151,57,0.08), transparent 42%),
+    linear-gradient(145deg, rgba(255,255,255,0.98), rgba(243,248,244,0.96));
+  color: var(--dark);
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.palette-trigger:hover,
+.palette-trigger:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(0,151,57,0.22);
+  box-shadow: 0 14px 30px rgba(13,50,31,0.08);
+}
+.palette-trigger:disabled {
+  transform: none;
+  border-color: rgba(52,58,64,0.08);
+  box-shadow: none;
+}
+.palette-trigger-kicker {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gray600);
+}
+.palette-trigger strong {
+  font-size: 20px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--gray900);
+}
+.palette-trigger-summary {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--gray700);
+}
+.palette-trigger-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(227,6,19,0.08);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.palette-dialog {
+  width: min(700px, calc(100vw - 24px));
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.palette-dialog::backdrop {
+  background: rgba(20,33,24,0.3);
+  backdrop-filter: blur(10px);
+}
+.palette-dialog-shell {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 28px;
+  border: 1px solid rgba(52,58,64,0.08);
+  background:
+    radial-gradient(circle at top right, rgba(227,6,19,0.08), transparent 28%),
+    radial-gradient(circle at top left, rgba(0,151,57,0.12), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,0.98), rgba(246,248,247,0.98));
+  box-shadow: 0 28px 64px rgba(13,50,31,0.16);
+}
+.palette-dialog-header {
+  display: grid;
+  gap: 8px;
+}
+.palette-dialog-header h3 {
+  margin: 0;
+  font-size: clamp(1.45rem, 4vw, 2rem);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+}
+.palette-dialog-header p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--gray700);
+}
+.palette-options {
+  display: grid;
+  gap: 12px;
+}
+.palette-option,
+button.palette-option,
+.button.palette-option {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 188px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(52,58,64,0.08);
+  background: rgba(255,255,255,0.84);
+  color: var(--dark);
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.palette-option:hover,
+.palette-option:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(0,151,57,0.18);
+  box-shadow: 0 16px 28px rgba(13,50,31,0.08);
+}
+.palette-option[data-selected="true"] {
+  border-color: rgba(0,151,57,0.32);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.98), rgba(239,248,242,0.98));
+  box-shadow: 0 18px 32px rgba(0,151,57,0.12);
+}
+.palette-option-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0,151,57,0.1);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.palette-option strong {
+  font-size: 20px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: var(--gray900);
+}
+.palette-option p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--gray700);
+}
+.palette-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 input, textarea, select {
   width: 100%;
@@ -737,6 +915,9 @@ button:disabled,
     padding: 22px 18px 64px;
   }
   .row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .palette-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .activation-panel {

@@ -30,6 +30,9 @@ const ok = (reply: any, data: unknown) => reply.send({ data, error: null });
 
 export const registerAdminRoutes = async (app: FastifyInstance) => {
   app.get("/admin", async (_request, reply) => {
+    if (!env.ADMIN_PORTAL_ENABLED) {
+      throw new ApiError(404, "NOT_FOUND");
+    }
     reply.type("text/html").send(renderAdminPage());
   });
 
