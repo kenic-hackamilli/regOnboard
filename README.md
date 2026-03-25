@@ -42,6 +42,7 @@ npm run db:migrate
 - `LOCAL_DB_AUTO_START` defaults to `false` when `NODE_ENV=production`
 - `AUTO_RUN_MIGRATIONS` defaults to `false` when `NODE_ENV=production`
 - In production, point `DATABASE_URL` at an external managed Postgres instance and run `npm run db:migrate` as part of deployment
+- If `DATABASE_URL` still points to `localhost`, the app will only bootstrap its own local cluster when PostgreSQL tools such as `initdb` and `pg_ctl` are installed. Otherwise set `LOCAL_DB_AUTO_START=false` and use an already running PostgreSQL service.
 
 ## Key routes
 

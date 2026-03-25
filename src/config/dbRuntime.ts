@@ -51,7 +51,18 @@ const runBinary = async (command: string, args: string[]) => {
       stderr += chunk.toString();
     });
 
-    child.on("error", reject);
+    child.on("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        reject(
+          new Error(
+            `Required PostgreSQL binary "${command}" was not found in PATH. Install PostgreSQL server tools or set LOCAL_DB_AUTO_START=false and point DATABASE_URL to an existing PostgreSQL server.`
+          )
+        );
+        return;
+      }
+
+      reject(error);
+    });
     child.on("close", (code) => {
       if (code === 0) {
         resolve();
@@ -163,6 +174,10 @@ const ensureLocalClusterInitialized = async () => {
 
 export const ensureLocalDatabaseRunning = async (target = getDatabaseTarget()) => {
   if (!shouldManageLocalDatabase(target)) {
+    return false;
+  }
+
+  if (await probeDatabase(target.maintenanceConnectionString)) {
     return false;
   }
 
