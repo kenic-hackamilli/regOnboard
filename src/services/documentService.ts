@@ -3,9 +3,10 @@ import { query, withTransaction } from "../config/db.js";
 import { env } from "../config/env.js";
 import { ApiError } from "../utils/errors.js";
 import { createChecksum } from "../utils/tokens.js";
-import { getAuthorizedApplication } from "./applicationService.js";
+import { getAuthorizedApplication, recalculateApplicationState } from "./applicationService.js";
 
 type RequirementRow = QueryResultRow & {
+  display_order: number;
   requirement_code: string;
   label: string;
   equivalent_label: string | null;
@@ -39,29 +40,32 @@ type BlobRow = QueryResultRow & {
 };
 
 export const listDocuments = async (applicationId: string, token: string) => {
-  await getAuthorizedApplication(applicationId, token);
+  const application = await getAuthorizedApplication(applicationId, token);
   const documents = await query<DocumentRow>(
     `
       SELECT
-        id,
-        application_id,
-        requirement_code,
-        source,
-        original_name,
-        mime_type,
-        size_bytes,
-        blob_id,
-        upload_status,
-        ocr_status,
-        document_status,
-        validation_results,
-        uploaded_at,
-        updated_at
-      FROM onboard_documents
-      WHERE application_id = $1
-      ORDER BY requirement_code
+        d.id,
+        d.application_id,
+        d.requirement_code,
+        d.source,
+        d.original_name,
+        d.mime_type,
+        d.size_bytes,
+        d.blob_id,
+        d.upload_status,
+        d.ocr_status,
+        d.document_status,
+        d.validation_results,
+        d.uploaded_at,
+        d.updated_at
+      FROM onboard_documents d
+      LEFT JOIN onboard_document_requirements r
+        ON r.applicant_type = $2
+       AND r.requirement_code = d.requirement_code
+      WHERE d.application_id = $1
+      ORDER BY COALESCE(r.display_order, 1000), d.requirement_code
     `,
-    [applicationId]
+    [applicationId, application.applicant_type]
   );
 
   return documents.map((document) => ({
@@ -108,6 +112,7 @@ export const uploadDocument = async (params: {
       await client.query<RequirementRow>(
         `
           SELECT requirement_code, label, equivalent_label, description, is_required, allowed_mime_types, max_files
+          , display_order
           FROM onboard_document_requirements
           WHERE applicant_type = $1 AND requirement_code = $2
           LIMIT 1
@@ -247,15 +252,7 @@ export const uploadDocument = async (params: {
       await client.query("DELETE FROM onboard_document_blobs WHERE id = $1", [oldDocument.blob_id]);
     }
 
-    await client.query(
-      `
-        UPDATE onboard_applications
-        SET status = CASE WHEN status = 'draft' THEN 'collecting_documents' ELSE status END,
-            updated_at = NOW()
-        WHERE id = $1
-      `,
-      [params.applicationId]
-    );
+    await recalculateApplicationState(client, application);
 
     await client.query(
       `

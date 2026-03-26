@@ -1,3 +1,7 @@
+import dotenv from "dotenv";
+
+dotenv.config();
+
 const BASE_URL = process.env.BASE_URL ?? "http://127.0.0.1:3200";
 const ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN ?? "onboard-admin-token";
 
@@ -24,6 +28,26 @@ const request = async <T>(
     throw new Error(payload.error?.message ?? `Request failed with ${response.status}`);
   }
   return payload.data;
+};
+
+const expectRequestError = async (
+  label: string,
+  operation: () => Promise<unknown>,
+  expectedMessage: string
+) => {
+  try {
+    await operation();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message !== expectedMessage) {
+      throw error;
+    }
+
+    console.log(label, message);
+    return;
+  }
+
+  throw new Error(label + " unexpectedly succeeded");
 };
 
 const uploadDocument = async (
@@ -55,6 +79,16 @@ const uploadDocument = async (
 };
 
 const main = async () => {
+  const runId = Date.now().toString().slice(-6);
+  const companyName = `DotKE Registrar ${runId}`;
+  const companyTin = `TIN-${runId}`;
+  const companyRegistrationNumber = `PVT-${runId}`;
+  const registrarEmail = `registrar.${runId}@example.ke`;
+  const operationsEmail = `ops.${runId}@example.ke`;
+  const adminEmail = `admin.${runId}@example.ke`;
+  const financeEmail = `finance.${runId}@example.ke`;
+  const websiteUrl = `registrar-${runId}.example.ke`;
+
   const health = await fetch(`${BASE_URL}/health`).then((res) => res.json());
   console.log("health", health);
 
@@ -82,16 +116,16 @@ const main = async () => {
       "SECTION_A_GENERAL_INFORMATION",
       {
         nameOfApplicant: "Daniel France",
-        companyName: "DotKE Registrar Ltd",
-        companyTin: "A12BCD34",
+        companyName,
+        companyTin,
         addressOfApplicant: "Nairobi, Kenya",
-        companyRegistrationNumber: "PVT-12345",
+        companyRegistrationNumber,
         telephoneNumber: "+254700123456",
-        emailAddress: "registrar@example.ke",
-        websiteUrl: "registrar.example.ke",
+        emailAddress: registrarEmail,
+        websiteUrl,
         contactPerson: "Daniel France",
         contactPersonTelephoneNumber: "+254700123456",
-        contactPersonEmailAddress: "ops@example.ke",
+        contactPersonEmailAddress: operationsEmail,
       },
     ],
     [
@@ -116,9 +150,9 @@ const main = async () => {
         ns1: "ns1.example.ke",
         ns2: "ns2.example.ke",
         adminContact: "Daniel France",
-        adminEmail: "admin@example.ke",
+        adminEmail,
         billingContact: "Finance Team",
-        billingEmail: "finance@example.ke",
+        billingEmail: financeEmail,
       },
     ],
     [
@@ -169,6 +203,21 @@ const main = async () => {
     );
     console.log("saved", sectionCode, result);
   }
+
+  await expectRequestError(
+    "submit blocked before document upload",
+    () =>
+      request(
+        `/onboard/v1/public/applications/${applicationId}/submit`,
+        {
+          method: "POST",
+        },
+        {
+          "x-draft-token": draftToken,
+        }
+      ),
+    "APPLICATION_NOT_READY_FOR_SUBMISSION"
+  );
 
   await uploadDocument(applicationId, draftToken, "CR12_OR_EQUIVALENT", "application/pdf", "cr12.pdf");
   await uploadDocument(applicationId, draftToken, "TAX_COMPLIANCE_OR_EQUIVALENT", "application/pdf", "tax.pdf");

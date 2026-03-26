@@ -676,6 +676,7 @@ textarea { min-height: 120px; resize: vertical; }
 .application-section {
   padding: 32px 0 0;
   border-top: 1px solid rgba(52,58,64,0.08);
+  scroll-margin-top: 20px;
 }
 .application-section:first-child {
   padding-top: 0;
@@ -809,6 +810,15 @@ textarea { min-height: 120px; resize: vertical; }
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  scroll-margin-top: 20px;
+}
+.doc-card.is-targeted {
+  margin: -6px;
+  padding: 20px;
+  border: 1px solid rgba(0,151,57,0.18);
+  border-radius: 18px;
+  background: rgba(0,151,57,0.05);
+  box-shadow: 0 0 0 1px rgba(0,151,57,0.08);
 }
 .doc-header {
   display: flex;

@@ -102,7 +102,7 @@ export const renderPortalPage = () => {
     </section>
 
     <div id="applicationFlow" class="application-flow">
-      <section class="application-section">
+      <section class="application-section" data-flow-section="SECTION_A_GENERAL_INFORMATION">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section A</div>
@@ -173,7 +173,7 @@ export const renderPortalPage = () => {
         </div>
       </section>
 
-      <section class="application-section">
+      <section class="application-section" data-flow-section="SECTION_B_BUSINESS_INFORMATION">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section B</div>
@@ -203,7 +203,7 @@ export const renderPortalPage = () => {
         </div>
       </section>
 
-      <section class="application-section">
+      <section class="application-section" data-flow-section="SECTION_C_DOMAIN_ADMINISTRATION">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section C</div>
@@ -230,7 +230,7 @@ export const renderPortalPage = () => {
         </div>
       </section>
 
-      <section class="application-section">
+      <section class="application-section" data-flow-section="SECTION_D_BUSINESS_DEVELOPMENT">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section D</div>
@@ -261,7 +261,7 @@ export const renderPortalPage = () => {
         </div>
       </section>
 
-      <section class="application-section">
+      <section class="application-section" data-flow-section="SECTION_E_LEGAL_STRUCTURE">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section E</div>
@@ -278,7 +278,7 @@ export const renderPortalPage = () => {
         </div>
       </section>
 
-      <section class="application-section">
+      <section class="application-section" data-flow-section="SECTION_F_DECLARATION">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section F</div>
@@ -309,25 +309,29 @@ export const renderPortalPage = () => {
         </div>
       </section>
 
-      <section class="application-section">
+      <section class="application-section" data-flow-section="SECTION_G_SUPPORTING_DOCUMENTS">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section G</div>
             <h2>Supporting Documents</h2>
-            <p>Upload services are temporarily unavailable.</p>
+            <p>Capture or upload each required document in checklist order. Camera capture is the primary path, with PDF upload available for documents that already exist digitally.</p>
           </div>
           <div class="section-main">
-            <div class="info-box compact">
+            <div class="info-box">
               <div class="stack">
-                <strong>Form upload services are currently unavailable.</strong>
-                <div class="subtle">Update in progress. Please continue with submission.</div>
+                <strong>Document checklist</strong>
+                <div class="subtle">Upload each required document here. When the camera or file picker closes, the checklist returns you to the same document so you can continue without losing your place.</div>
               </div>
             </div>
+            <div id="documentUploadFeedback" class="submission-feedback info">Lock the application profile above, then prepare the checklist here before uploading documents.</div>
+            <div id="documentRequirementsList" class="list"></div>
+            <input id="documentCameraInput" class="visually-hidden-control" type="file" accept="image/*" />
+            <input id="documentUploadInput" class="visually-hidden-control" type="file" accept="application/pdf,image/*" />
           </div>
         </div>
       </section>
 
-      <section class="application-section">
+      <section class="application-section" data-flow-section="FINAL_REVIEW">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Final step</div>
@@ -352,14 +356,22 @@ export const renderPortalPage = () => {
     const stateKey = "dotke.onboard.portal";
     const draftStateKeyPrefix = stateKey + ".draft.";
     const pendingDraftStorageKey = draftStateKeyPrefix + "pending";
+    const uiStateKey = stateKey + ".ui";
     const fieldMaxLengths = ${JSON.stringify(SECTION_FIELD_MAX_LENGTHS)};
+    const UI_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+    const DOCUMENT_SECTION_CODE = "SECTION_G_SUPPORTING_DOCUMENTS";
     const state = { applicationId: "", draftToken: "", resumeToken: "", resumeCode: "" };
+    let sessionRestoreSource = "none";
     let latestBundle = getEmptyBundle();
     let formsEnabled = false;
     let savingApplication = false;
     let submittingApplication = false;
     let sectionHighlightTimer = null;
     let localDraftSaveTimer = null;
+    let viewportRestoreTimer = null;
+    let documentHighlightTimer = null;
+    let flowSectionSyncFrame = null;
+    let lastRememberedSectionCode = "";
 
     const flashBox = document.getElementById("flashBox");
     const activationIndicator = document.getElementById("activationIndicator");
@@ -367,6 +379,10 @@ export const renderPortalPage = () => {
     const applicationFlow = document.getElementById("applicationFlow");
     const submitApplicationButton = document.getElementById("submitApplicationButton");
     const submissionFeedback = document.getElementById("submissionFeedback");
+    const documentUploadFeedback = document.getElementById("documentUploadFeedback");
+    const documentRequirementsList = document.getElementById("documentRequirementsList");
+    const documentCameraInput = document.getElementById("documentCameraInput");
+    const documentUploadInput = document.getElementById("documentUploadInput");
     const applicantTypeInput = document.getElementById("applicantType");
     const applicantTypeTrigger = document.getElementById("applicantTypeTrigger");
     const applicantTypeDisplay = document.getElementById("applicantTypeDisplay");
@@ -395,12 +411,19 @@ export const renderPortalPage = () => {
         hint: document.getElementById("contactPersonTelephoneNumberHint"),
       },
     ];
+    const flowSectionNodes = Array.from(document.querySelectorAll("[data-flow-section]"));
     const sectionStatusNodes = Object.fromEntries(
       Array.from(document.querySelectorAll("[data-section-status]")).map((node) => [
         node.getAttribute("data-section-status"),
         node,
       ])
     );
+    const pendingDocumentUploads = new Set();
+    let activeDocumentInputConfig = null;
+    const IMAGE_UPLOAD_MAX_DIMENSION = 2200;
+    const IMAGE_UPLOAD_QUALITY = 0.82;
+    const SUBMISSION_RECEIVED_MESSAGE =
+      "Application successfully received. Please await the next steps from KeNIC.";
     const SECTION_META = {
       SECTION_A_GENERAL_INFORMATION: { label: "Section A: General Information" },
       SECTION_B_BUSINESS_INFORMATION: { label: "Section B: Business Information" },
@@ -598,11 +621,17 @@ export const renderPortalPage = () => {
       return Boolean(value) && typeof value === "object" && !Array.isArray(value);
     }
 
+    function hasOwn(object, key) {
+      return Boolean(object) && Object.prototype.hasOwnProperty.call(object, key);
+    }
+
     function getEmptyBundle() {
       return {
         application: null,
         sections: [],
         checklist: {
+          readyForSubmission: false,
+          progressPercent: 0,
           sections: [],
           documents: [],
         },
@@ -619,11 +648,269 @@ export const renderPortalPage = () => {
         ...safeBundle,
         sections: Array.isArray(safeBundle.sections) ? safeBundle.sections : [],
         checklist: {
+          readyForSubmission: Boolean(safeChecklist.readyForSubmission),
+          progressPercent: Number.isFinite(Number(safeChecklist.progressPercent))
+            ? Number(safeChecklist.progressPercent)
+            : 0,
           sections: Array.isArray(safeChecklist.sections) ? safeChecklist.sections : [],
           documents: Array.isArray(safeChecklist.documents) ? safeChecklist.documents : [],
         },
         documents: Array.isArray(safeBundle.documents) ? safeBundle.documents : [],
       };
+    }
+
+    function getEmptyUiState() {
+      return {
+        applicationId: "",
+        activeSectionCode: "",
+        activeRequirementCode: "",
+        activeActionSource: "",
+        awaitingDocumentReturn: false,
+        updatedAt: "",
+      };
+    }
+
+    function clearPortalUiState() {
+      lastRememberedSectionCode = "";
+      try {
+        localStorage.removeItem(uiStateKey);
+      } catch {}
+    }
+
+    function loadPortalUiState() {
+      try {
+        const raw = localStorage.getItem(uiStateKey);
+        if (!raw) {
+          return getEmptyUiState();
+        }
+
+        const parsed = JSON.parse(raw);
+        if (!isRecord(parsed)) {
+          return getEmptyUiState();
+        }
+
+        const updatedAt = typeof parsed.updatedAt === "string" ? parsed.updatedAt : "";
+        if (updatedAt) {
+          const ageMs = Date.now() - Date.parse(updatedAt);
+          if (!Number.isFinite(ageMs) || ageMs > UI_STATE_MAX_AGE_MS) {
+            clearPortalUiState();
+            return getEmptyUiState();
+          }
+        }
+
+        return {
+          applicationId: typeof parsed.applicationId === "string" ? parsed.applicationId : "",
+          activeSectionCode: typeof parsed.activeSectionCode === "string" ? parsed.activeSectionCode : "",
+          activeRequirementCode: typeof parsed.activeRequirementCode === "string"
+            ? parsed.activeRequirementCode
+            : "",
+          activeActionSource: typeof parsed.activeActionSource === "string"
+            ? parsed.activeActionSource
+            : "",
+          awaitingDocumentReturn: Boolean(parsed.awaitingDocumentReturn),
+          updatedAt,
+        };
+      } catch {
+        return getEmptyUiState();
+      }
+    }
+
+    function savePortalUiState(patch = {}) {
+      const nextUiState = {
+        ...loadPortalUiState(),
+        applicationId: state.applicationId || "",
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (hasOwn(patch, "applicationId")) {
+        nextUiState.applicationId = String(patch.applicationId || "");
+      }
+      if (hasOwn(patch, "activeSectionCode")) {
+        nextUiState.activeSectionCode = String(patch.activeSectionCode || "");
+      }
+      if (hasOwn(patch, "activeRequirementCode")) {
+        nextUiState.activeRequirementCode = String(patch.activeRequirementCode || "");
+      }
+      if (hasOwn(patch, "activeActionSource")) {
+        nextUiState.activeActionSource = String(patch.activeActionSource || "");
+      }
+      if (hasOwn(patch, "awaitingDocumentReturn")) {
+        nextUiState.awaitingDocumentReturn = Boolean(patch.awaitingDocumentReturn);
+      }
+
+      lastRememberedSectionCode = nextUiState.activeSectionCode;
+
+      try {
+        localStorage.setItem(uiStateKey, JSON.stringify(nextUiState));
+      } catch {}
+
+      return nextUiState;
+    }
+
+    function isPortalUiStateCompatible(uiState) {
+      const storedApplicationId = String(uiState?.applicationId || "");
+      return !storedApplicationId || !state.applicationId || storedApplicationId === state.applicationId;
+    }
+
+    function getFlowSectionNode(sectionCode) {
+      return sectionCode
+        ? document.querySelector('[data-flow-section="' + sectionCode + '"]')
+        : null;
+    }
+
+    function getDocumentCardNode(requirementCode) {
+      return requirementCode
+        ? document.querySelector('[data-document-requirement="' + requirementCode + '"]')
+        : null;
+    }
+
+    function getCurrentFlowSectionCode() {
+      const threshold = 160;
+      let currentSectionCode = "";
+
+      flowSectionNodes.forEach((node) => {
+        const sectionCode = node.getAttribute("data-flow-section");
+        if (!sectionCode) {
+          return;
+        }
+
+        if (node.getBoundingClientRect().top <= threshold) {
+          currentSectionCode = sectionCode;
+        }
+      });
+
+      return currentSectionCode || flowSectionNodes[0]?.getAttribute("data-flow-section") || "";
+    }
+
+    function rememberPortalViewport(options = {}) {
+      const currentUiState = loadPortalUiState();
+      const nextSectionCode = hasOwn(options, "sectionCode")
+        ? String(options.sectionCode || "")
+        : getCurrentFlowSectionCode() || currentUiState.activeSectionCode || "";
+      const isDocumentSection = nextSectionCode === DOCUMENT_SECTION_CODE;
+      const nextRequirementCode = hasOwn(options, "requirementCode")
+        ? String(options.requirementCode || "")
+        : isDocumentSection
+          ? currentUiState.activeRequirementCode || ""
+          : "";
+      const nextActionSource = hasOwn(options, "actionSource")
+        ? String(options.actionSource || "")
+        : isDocumentSection
+          ? currentUiState.activeActionSource || ""
+          : "";
+      const nextAwaitingDocumentReturn = hasOwn(options, "awaitingDocumentReturn")
+        ? Boolean(options.awaitingDocumentReturn)
+        : currentUiState.awaitingDocumentReturn;
+
+      return savePortalUiState({
+        applicationId: state.applicationId || "",
+        activeSectionCode: nextSectionCode,
+        activeRequirementCode: nextRequirementCode,
+        activeActionSource: nextActionSource,
+        awaitingDocumentReturn: nextAwaitingDocumentReturn,
+      });
+    }
+
+    function clearDocumentCardHighlight() {
+      document.querySelectorAll("[data-document-requirement].is-targeted").forEach((node) => {
+        node.classList.remove("is-targeted");
+      });
+    }
+
+    function restorePortalViewport(options = {}) {
+      const uiState = loadPortalUiState();
+      if (!isPortalUiStateCompatible(uiState)) {
+        clearPortalUiState();
+        return false;
+      }
+
+      const sectionCode = String(options.sectionCode || uiState.activeSectionCode || "");
+      if (!sectionCode) {
+        return false;
+      }
+
+      const requirementCode = String(options.requirementCode || uiState.activeRequirementCode || "");
+      const actionSource = String(options.actionSource || uiState.activeActionSource || "");
+      const sectionNode = getFlowSectionNode(sectionCode);
+      if (!sectionNode) {
+        return false;
+      }
+
+      sectionNode.scrollIntoView({
+        behavior: options.smooth ? "smooth" : "auto",
+        block: "start",
+      });
+
+      let focusTarget = null;
+      if (sectionCode === DOCUMENT_SECTION_CODE && requirementCode) {
+        const documentCard = getDocumentCardNode(requirementCode);
+        if (documentCard) {
+          clearDocumentCardHighlight();
+          documentCard.classList.add("is-targeted");
+          documentCard.scrollIntoView({
+            behavior: options.smooth ? "smooth" : "auto",
+            block: "center",
+          });
+
+          if (documentHighlightTimer) {
+            clearTimeout(documentHighlightTimer);
+          }
+
+          documentHighlightTimer = setTimeout(() => {
+            documentCard.classList.remove("is-targeted");
+          }, 2400);
+
+          if (actionSource) {
+            focusTarget = documentCard.querySelector(
+              '[data-document-action-source="' + actionSource + '"]:not([disabled])'
+            );
+          }
+
+          if (!focusTarget) {
+            focusTarget = documentCard.querySelector("button:not([disabled]), a.button");
+          }
+        }
+      }
+
+      if (options.focusTarget && focusTarget && typeof focusTarget.focus === "function") {
+        setTimeout(() => {
+          try {
+            focusTarget.focus({ preventScroll: true });
+          } catch {
+            focusTarget.focus();
+          }
+        }, 180);
+      }
+
+      rememberPortalViewport({
+        sectionCode,
+        requirementCode,
+        actionSource,
+        awaitingDocumentReturn: false,
+      });
+      return true;
+    }
+
+    function schedulePortalViewportRestore(options = {}) {
+      if (viewportRestoreTimer) {
+        clearTimeout(viewportRestoreTimer);
+      }
+
+      const delay = Number.isFinite(Number(options.delay)) ? Number(options.delay) : 160;
+      viewportRestoreTimer = setTimeout(() => {
+        window.requestAnimationFrame(() => {
+          restorePortalViewport(options);
+        });
+      }, delay);
+    }
+
+    function syncRememberedSectionFromViewport() {
+      const nextSectionCode = getCurrentFlowSectionCode();
+      if (!nextSectionCode || nextSectionCode === lastRememberedSectionCode) {
+        return;
+      }
+
+      rememberPortalViewport({ sectionCode: nextSectionCode });
     }
 
     function saveState() {
@@ -750,12 +1037,14 @@ export const renderPortalPage = () => {
       const params = new URLSearchParams(window.location.search);
       const applicationId = String(params.get("applicationId") || "").trim();
       const token = String(params.get("token") || "").trim();
+      sessionRestoreSource = "none";
 
       if (applicationId && token) {
         state.applicationId = applicationId;
         state.draftToken = "";
         state.resumeToken = token;
         state.resumeCode = "";
+        sessionRestoreSource = "query";
         saveState();
         clearResumeQueryParams();
         return "Saved application reopened.";
@@ -763,6 +1052,7 @@ export const renderPortalPage = () => {
 
       loadStoredState();
       if (state.applicationId && (state.draftToken || state.resumeToken)) {
+        sessionRestoreSource = "storage";
         return "Restored your in-progress application.";
       }
 
@@ -1201,9 +1491,12 @@ export const renderPortalPage = () => {
 
     function syncSubmissionFeedback(bundle) {
       const status = bundle?.application?.status || "";
+      const missingRequiredDocuments = getChecklistDocuments(bundle).filter((document) =>
+        document.isRequired && !document.uploaded
+      );
 
       if (status === "submitted" || status === "in_review") {
-        setSubmissionFeedback("Application submitted successfully.", "success");
+        setSubmissionFeedback(SUBMISSION_RECEIVED_MESSAGE, "success");
         return;
       }
 
@@ -1219,6 +1512,11 @@ export const renderPortalPage = () => {
 
       if (status === "changes_requested") {
         setSubmissionFeedback("We need a few updates before you submit again.", "info");
+        return;
+      }
+
+      if (missingRequiredDocuments.length > 0) {
+        setSubmissionFeedback("Complete the form and upload all required documents before submitting.", "info");
         return;
       }
 
@@ -1259,6 +1557,7 @@ export const renderPortalPage = () => {
         field.disabled = !enabled;
       });
       updateActionButtons();
+      renderDocumentRequirements(latestBundle);
     }
 
     function setActivationState(nextState = "idle") {
@@ -1329,6 +1628,14 @@ export const renderPortalPage = () => {
       resetSectionForms();
       resetSectionStatuses();
       latestBundle = getEmptyBundle();
+      pendingDocumentUploads.clear();
+      activeDocumentInputConfig = null;
+      if (viewportRestoreTimer) {
+        clearTimeout(viewportRestoreTimer);
+      }
+      clearDocumentCardHighlight();
+      renderDocumentRequirements(latestBundle);
+      syncDocumentUploadFeedback(latestBundle);
       syncCountryFieldState(false);
     }
 
@@ -1353,11 +1660,13 @@ export const renderPortalPage = () => {
       state.draftToken = "";
       state.resumeToken = "";
       state.resumeCode = "";
+      sessionRestoreSource = "none";
 
       try {
         localStorage.removeItem(stateKey);
       } catch {}
 
+      clearPortalUiState();
       clearResumeQueryParams();
       resetLockedPortal();
     }
@@ -1466,6 +1775,7 @@ export const renderPortalPage = () => {
       if (panel) {
         panel.classList.add("is-targeted");
         panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        rememberPortalViewport({ sectionCode: issue.sectionCode });
       }
 
       if (sectionHighlightTimer) {
@@ -1537,7 +1847,7 @@ export const renderPortalPage = () => {
 
     function getReviewStatusMessage(status) {
       if (status === "submitted" || status === "in_review") {
-        return "Application submitted successfully.";
+        return SUBMISSION_RECEIVED_MESSAGE;
       }
 
       if (status === "changes_requested") {
@@ -1577,6 +1887,16 @@ export const renderPortalPage = () => {
           "Please review the highlighted sections and try again.",
         APPLICATION_NOT_READY_FOR_SUBMISSION:
           "Please complete all required sections before submitting.",
+        FILE_REQUIRED:
+          "Select a document before uploading.",
+        EMPTY_FILE:
+          "The selected document is empty. Choose another file and try again.",
+        FILE_TOO_LARGE:
+          "The selected document is too large. Use a smaller file or capture a compressed image.",
+        UNSUPPORTED_MIME_TYPE:
+          "This document type is not allowed for the selected requirement.",
+        INVALID_REQUIREMENT_CODE:
+          "The selected checklist requirement is no longer valid. Refresh the page and try again.",
         INVALID_APPLICATION_FORM_PAYLOAD:
           "We could not read the application form. Refresh the page and try again.",
         COUNTRY_OF_INCORPORATION_REQUIRED:
@@ -1587,6 +1907,8 @@ export const renderPortalPage = () => {
           "Country of incorporation is too long. Search and select a shorter country name.",
         APPLICATION_ALREADY_SUBMITTED:
           "This application has already been submitted and is now read-only.",
+        APPLICATION_ALREADY_EXISTS_FOR_COMPANY:
+          "An application already exists for this company PIN or registration number. Use the earlier application or contact support.",
         DRAFT_OR_RESUME_TOKEN_REQUIRED:
           "Please start a new application or reopen your saved application first.",
         INVALID_OR_EXPIRED_DRAFT_TOKEN:
@@ -1600,6 +1922,488 @@ export const renderPortalPage = () => {
         return message;
       }
       return fallback;
+    }
+
+    function setDocumentUploadFeedback(message, tone = "info") {
+      if (!documentUploadFeedback) {
+        return;
+      }
+
+      documentUploadFeedback.textContent = message;
+      documentUploadFeedback.className = "submission-feedback " + tone;
+    }
+
+    function getChecklistDocuments(bundle = latestBundle) {
+      const documents = Array.isArray(bundle?.checklist?.documents)
+        ? bundle.checklist.documents.slice()
+        : [];
+
+      return documents.sort((left, right) => {
+        const leftOrder = Number(left?.displayOrder ?? 9999);
+        const rightOrder = Number(right?.displayOrder ?? 9999);
+        if (leftOrder !== rightOrder) {
+          return leftOrder - rightOrder;
+        }
+
+        return String(left?.requirementCode || "").localeCompare(String(right?.requirementCode || ""));
+      });
+    }
+
+    function getUploadedDocumentMap(bundle = latestBundle) {
+      const map = new Map();
+      const documents = Array.isArray(bundle?.documents) ? bundle.documents : [];
+      documents.forEach((document) => {
+        if (document && typeof document.requirementCode === "string") {
+          map.set(document.requirementCode, document);
+        }
+      });
+      return map;
+    }
+
+    function getRequirementByCode(requirementCode, bundle = latestBundle) {
+      return getChecklistDocuments(bundle).find((document) => document.requirementCode === requirementCode) || null;
+    }
+
+    function formatFileSize(sizeBytes) {
+      const bytes = Number(sizeBytes);
+      if (!Number.isFinite(bytes) || bytes <= 0) {
+        return "";
+      }
+
+      if (bytes < 1024) {
+        return bytes + " B";
+      }
+
+      if (bytes < 1024 * 1024) {
+        return (bytes / 1024).toFixed(1) + " KB";
+      }
+
+      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function requirementAllowsImages(requirement) {
+      return Array.isArray(requirement?.allowedMimeTypes)
+        && requirement.allowedMimeTypes.some((mimeType) => String(mimeType).startsWith("image/"));
+    }
+
+    function requirementAllowsPdf(requirement) {
+      return Array.isArray(requirement?.allowedMimeTypes)
+        && requirement.allowedMimeTypes.includes("application/pdf");
+    }
+
+    function buildFileAcceptAttribute(requirement, source = "upload") {
+      if (source === "camera") {
+        return requirementAllowsImages(requirement) ? "image/*" : "";
+      }
+
+      const acceptedTypes = [];
+      if (requirementAllowsPdf(requirement)) {
+        acceptedTypes.push("application/pdf");
+      }
+      if (requirementAllowsImages(requirement)) {
+        acceptedTypes.push("image/*");
+      }
+
+      return acceptedTypes.join(",") || "*/*";
+    }
+
+    function getCameraCaptureMode(requirementCode) {
+      return requirementCode === "PASSPORT_PHOTO" ? "user" : "environment";
+    }
+
+    function getDownloadToken() {
+      return state.resumeToken || state.draftToken || "";
+    }
+
+    function buildDocumentDownloadUrl(documentId) {
+      if (!state.applicationId || !documentId) {
+        return "";
+      }
+
+      const token = getDownloadToken();
+      const query = token ? "?token=" + encodeURIComponent(token) : "";
+      return "/onboard/v1/public/applications/" + state.applicationId + "/documents/" + documentId + "/download" + query;
+    }
+
+    function replaceFilenameExtension(filename, nextExtension) {
+      const normalizedFilename = String(filename || "document").trim() || "document";
+      const stem = normalizedFilename.replace(/\\.[^.]+$/, "") || "document";
+      return stem + "." + nextExtension;
+    }
+
+    function loadImageFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(image);
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error("Failed to load image."));
+        };
+        image.src = objectUrl;
+      });
+    }
+
+    async function normalizeImageFile(file) {
+      if (!file || !String(file.type || "").startsWith("image/")) {
+        return file;
+      }
+
+      const image = await loadImageFromFile(file);
+      const width = Number(image.naturalWidth || image.width || 0);
+      const height = Number(image.naturalHeight || image.height || 0);
+      const longestSide = Math.max(width, height);
+
+      if (!longestSide) {
+        return file;
+      }
+
+      const scale = longestSide > IMAGE_UPLOAD_MAX_DIMENSION
+        ? IMAGE_UPLOAD_MAX_DIMENSION / longestSide
+        : 1;
+      const targetWidth = Math.max(1, Math.round(width * scale));
+      const targetHeight = Math.max(1, Math.round(height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return file;
+      }
+
+      context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+      const blob = await new Promise((resolve) => {
+        canvas.toBlob((value) => resolve(value), "image/jpeg", IMAGE_UPLOAD_QUALITY);
+      });
+
+      if (!blob) {
+        return file;
+      }
+
+      if (blob.size >= file.size && scale === 1 && file.type === "image/jpeg") {
+        return file;
+      }
+
+      return new File(
+        [blob],
+        replaceFilenameExtension(file.name, "jpg"),
+        { type: "image/jpeg", lastModified: Date.now() }
+      );
+    }
+
+    async function prepareDocumentFileForUpload(file) {
+      if (!file) {
+        throw new Error("FILE_REQUIRED");
+      }
+
+      if (String(file.type || "").startsWith("image/")) {
+        return normalizeImageFile(file);
+      }
+
+      return file;
+    }
+
+    function getDocumentStatusTone(requirementCode, uploadedDocument) {
+      if (pendingDocumentUploads.has(requirementCode)) {
+        return "loading";
+      }
+
+      if (uploadedDocument) {
+        return "ready";
+      }
+
+      return "pending";
+    }
+
+    function getDocumentStatusLabel(requirementCode, uploadedDocument) {
+      if (pendingDocumentUploads.has(requirementCode)) {
+        return "Uploading";
+      }
+
+      if (uploadedDocument) {
+        return "Received";
+      }
+
+      return "Required";
+    }
+
+    function buildDocumentIssue(requirementCode) {
+      const requirement = getRequirementByCode(requirementCode);
+      return {
+        requirementCode,
+        message: "Please upload " + (requirement?.label || requirementCode) + " before continuing.",
+      };
+    }
+
+    function getBlockingDocumentIssueFromDetails(documentDetails) {
+      if (!Array.isArray(documentDetails) || documentDetails.length === 0) {
+        return null;
+      }
+
+      const firstRequirementCode = typeof documentDetails[0] === "string"
+        ? documentDetails[0]
+        : "";
+      return firstRequirementCode ? buildDocumentIssue(firstRequirementCode) : null;
+    }
+
+    function guideUserToDocumentIssue(issue) {
+      if (!issue?.requirementCode) {
+        return false;
+      }
+
+      const sectionPanel = documentRequirementsList?.closest(".application-section") || null;
+      const documentCard = document.querySelector(
+        '[data-document-requirement="' + issue.requirementCode + '"]'
+      );
+
+      setFlash(issue.message, "error");
+      setDocumentUploadFeedback(issue.message, "error");
+
+      document.querySelectorAll(".application-section.is-targeted").forEach((node) => {
+        node.classList.remove("is-targeted");
+      });
+
+      if (sectionPanel) {
+        sectionPanel.classList.add("is-targeted");
+        sectionPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        rememberPortalViewport({
+          sectionCode: DOCUMENT_SECTION_CODE,
+          requirementCode: issue.requirementCode,
+        });
+      }
+
+      if (sectionHighlightTimer) {
+        clearTimeout(sectionHighlightTimer);
+      }
+
+      sectionHighlightTimer = setTimeout(() => {
+        sectionPanel?.classList.remove("is-targeted");
+      }, 2600);
+
+      const focusTarget = documentCard?.querySelector("button:not([disabled]), a.button") || null;
+      if (focusTarget && typeof focusTarget.focus === "function") {
+        setTimeout(() => {
+          try {
+            focusTarget.focus({ preventScroll: true });
+          } catch {
+            focusTarget.focus();
+          }
+        }, 260);
+      }
+
+      return true;
+    }
+
+    function syncDocumentUploadFeedback(bundle = latestBundle) {
+      const checklistDocuments = getChecklistDocuments(bundle);
+      const applicationStatus = bundle?.application?.status || "";
+      const isReadOnly = ["submitted", "in_review", "approved", "rejected"].includes(applicationStatus);
+
+      if (!state.applicationId) {
+        setDocumentUploadFeedback(
+          "Create the application profile first, then prepare the document checklist here before uploading.",
+          "info"
+        );
+        return;
+      }
+
+      if (!checklistDocuments.length) {
+        setDocumentUploadFeedback("Document checklist is loading for this application.", "info");
+        return;
+      }
+
+      if (isReadOnly) {
+        setDocumentUploadFeedback("This application is read-only. Documents can no longer be changed here.", "info");
+        return;
+      }
+
+      const missingRequiredDocuments = checklistDocuments.filter((document) =>
+        document.isRequired && !document.uploaded
+      );
+
+      if (missingRequiredDocuments.length > 0) {
+        setDocumentUploadFeedback(
+          "Upload all required documents before final submission.",
+          "info"
+        );
+        return;
+      }
+
+      setDocumentUploadFeedback(
+        "All required documents have been received. You can continue reviewing the form before submission.",
+        "success"
+      );
+    }
+
+    function renderDocumentRequirements(bundle = latestBundle) {
+      if (!documentRequirementsList) {
+        return;
+      }
+
+      const checklistDocuments = getChecklistDocuments(bundle);
+      const uploadedDocumentMap = getUploadedDocumentMap(bundle);
+      const isReadOnly = ["submitted", "in_review", "approved", "rejected"].includes(
+        bundle?.application?.status || ""
+      );
+
+      documentRequirementsList.innerHTML = "";
+
+      if (!checklistDocuments.length) {
+        const node = document.createElement("div");
+        node.className = "list-item stack";
+        node.innerHTML =
+          "<strong>Prepare the document checklist</strong>" +
+          "<div class='subtle'>The checklist is created once the applicant profile is locked for this application.</div>";
+
+        if (!state.applicationId) {
+          const toolbar = document.createElement("div");
+          toolbar.className = "toolbar";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = "Prepare checklist";
+          button.addEventListener("click", async () => {
+            try {
+              await ensureApplicationStarted();
+              renderDocumentRequirements(latestBundle);
+              syncDocumentUploadFeedback(latestBundle);
+              setFlash("Application profile prepared. Continue with the required documents.", "success");
+            } catch (error) {
+              setFlash(
+                getFriendlyErrorMessage(
+                  error,
+                  "We could not prepare the document checklist. Try again."
+                ),
+                true
+              );
+            }
+          });
+          toolbar.appendChild(button);
+          node.appendChild(toolbar);
+        }
+
+        documentRequirementsList.appendChild(node);
+        return;
+      }
+
+      checklistDocuments.forEach((requirement, index) => {
+        const uploadedDocument = uploadedDocumentMap.get(requirement.requirementCode) || null;
+        const node = document.createElement("div");
+        node.className = "list-item stack doc-card";
+        node.setAttribute("data-document-requirement", requirement.requirementCode);
+
+        const header = document.createElement("div");
+        header.className = "doc-header";
+
+        const meta = document.createElement("div");
+        meta.className = "doc-meta";
+        meta.innerHTML =
+          "<div class='doc-index'>Requirement " + (index + 1) + "</div>" +
+          "<strong>" + requirement.label + "</strong>" +
+          (
+            requirement.equivalentLabel
+              ? "<div class='hint'>" + requirement.equivalentLabel + "</div>"
+              : ""
+          );
+
+        const badge = document.createElement("div");
+        badge.className = "mini-pill " + getDocumentStatusTone(requirement.requirementCode, uploadedDocument);
+        badge.textContent = getDocumentStatusLabel(requirement.requirementCode, uploadedDocument);
+
+        header.appendChild(meta);
+        header.appendChild(badge);
+        node.appendChild(header);
+
+        if (requirement.description) {
+          const description = document.createElement("div");
+          description.className = "doc-note";
+          description.textContent = requirement.description;
+          node.appendChild(description);
+        }
+
+        const status = document.createElement("div");
+        status.className = "doc-status";
+        status.textContent = uploadedDocument
+          ? "Uploaded as " + (uploadedDocument.originalName || "document")
+            + (uploadedDocument.sizeBytes ? " • " + formatFileSize(uploadedDocument.sizeBytes) : "")
+          : "Accepted types: " + buildFileAcceptAttribute(requirement, "upload").replace(/,/g, ", ");
+        node.appendChild(status);
+
+        const actions = document.createElement("div");
+        actions.className = "doc-actions";
+
+        if (requirementAllowsImages(requirement)) {
+          const captureButton = document.createElement("button");
+          captureButton.type = "button";
+          captureButton.className = uploadedDocument ? "ghost" : "secondary";
+          captureButton.disabled = isReadOnly || pendingDocumentUploads.has(requirement.requirementCode);
+          captureButton.textContent = uploadedDocument ? "Replace with camera" : "Capture document";
+          captureButton.setAttribute("data-document-action-source", "camera");
+          captureButton.addEventListener("click", () => {
+            rememberPortalViewport({
+              sectionCode: DOCUMENT_SECTION_CODE,
+              requirementCode: requirement.requirementCode,
+              actionSource: "camera",
+              awaitingDocumentReturn: true,
+            });
+            activeDocumentInputConfig = {
+              requirementCode: requirement.requirementCode,
+              source: "camera",
+            };
+
+            if (documentCameraInput) {
+              documentCameraInput.accept = buildFileAcceptAttribute(requirement, "camera");
+              documentCameraInput.setAttribute("capture", getCameraCaptureMode(requirement.requirementCode));
+              documentCameraInput.click();
+            }
+          });
+          actions.appendChild(captureButton);
+        }
+
+        const uploadButton = document.createElement("button");
+        uploadButton.type = "button";
+        uploadButton.className = uploadedDocument ? "ghost" : "";
+        uploadButton.disabled = isReadOnly || pendingDocumentUploads.has(requirement.requirementCode);
+        uploadButton.textContent = uploadedDocument ? "Replace file" : "Upload file";
+        uploadButton.setAttribute("data-document-action-source", "upload");
+        uploadButton.addEventListener("click", () => {
+          rememberPortalViewport({
+            sectionCode: DOCUMENT_SECTION_CODE,
+            requirementCode: requirement.requirementCode,
+            actionSource: "upload",
+            awaitingDocumentReturn: true,
+          });
+          activeDocumentInputConfig = {
+            requirementCode: requirement.requirementCode,
+            source: "upload",
+          };
+
+          if (documentUploadInput) {
+            documentUploadInput.accept = buildFileAcceptAttribute(requirement, "upload");
+            documentUploadInput.removeAttribute("capture");
+            documentUploadInput.click();
+          }
+        });
+        actions.appendChild(uploadButton);
+
+        if (uploadedDocument?.id) {
+          const downloadLink = document.createElement("a");
+          downloadLink.className = "button ghost";
+          downloadLink.target = "_blank";
+          downloadLink.rel = "noreferrer";
+          downloadLink.textContent = "Download";
+          downloadLink.href = buildDocumentDownloadUrl(uploadedDocument.id);
+          actions.appendChild(downloadLink);
+        }
+
+        node.appendChild(actions);
+        documentRequirementsList.appendChild(node);
+      });
     }
 
     function getAuthHeaders() {
@@ -1624,6 +2428,97 @@ export const renderPortalPage = () => {
         throw error;
       }
       return payload.data ?? payload;
+    }
+
+    async function uploadDocumentForRequirement(file, config) {
+      if (!config?.requirementCode || !config?.source) {
+        throw new Error("INVALID_REQUIREMENT_CODE");
+      }
+
+      rememberPortalViewport({
+        sectionCode: DOCUMENT_SECTION_CODE,
+        requirementCode: config.requirementCode,
+        actionSource: config.source,
+        awaitingDocumentReturn: false,
+      });
+
+      if (!state.applicationId) {
+        await ensureApplicationStarted();
+      }
+
+      const requirement = getRequirementByCode(config.requirementCode);
+      const requirementLabel = requirement?.label || config.requirementCode;
+      const preparedFile = await prepareDocumentFileForUpload(file);
+
+      pendingDocumentUploads.add(config.requirementCode);
+      renderDocumentRequirements(latestBundle);
+      setDocumentUploadFeedback("Uploading " + requirementLabel + "...", "info");
+
+      try {
+        const formData = new FormData();
+        formData.append("requirementCode", config.requirementCode);
+        formData.append("source", config.source);
+        formData.append("file", preparedFile, preparedFile.name);
+
+        await request("/onboard/v1/public/applications/" + state.applicationId + "/documents", {
+          method: "POST",
+          body: formData,
+        });
+
+        pendingDocumentUploads.delete(config.requirementCode);
+        await hydrate(requirementLabel + " uploaded successfully.");
+      } catch (error) {
+        pendingDocumentUploads.delete(config.requirementCode);
+        renderDocumentRequirements(latestBundle);
+        syncDocumentUploadFeedback(latestBundle);
+        throw error;
+      }
+    }
+
+    async function handleDocumentInputChange(input) {
+      const selectedFile = input?.files?.[0] || null;
+      const activeConfig = activeDocumentInputConfig;
+      const uiState = loadPortalUiState();
+      activeDocumentInputConfig = null;
+
+      if (input) {
+        input.value = "";
+      }
+
+      if (!selectedFile || !activeConfig) {
+        schedulePortalViewportRestore({
+          sectionCode: DOCUMENT_SECTION_CODE,
+          requirementCode: activeConfig?.requirementCode || uiState.activeRequirementCode,
+          actionSource: activeConfig?.source || uiState.activeActionSource,
+          focusTarget: true,
+          delay: 80,
+        });
+        return;
+      }
+
+      try {
+        await uploadDocumentForRequirement(selectedFile, activeConfig);
+        schedulePortalViewportRestore({
+          sectionCode: DOCUMENT_SECTION_CODE,
+          requirementCode: activeConfig.requirementCode,
+          actionSource: activeConfig.source,
+          focusTarget: true,
+        });
+      } catch (error) {
+        const friendlyMessage = getFriendlyErrorMessage(
+          error,
+          "We could not upload the selected document. Try again."
+        );
+        setFlash(friendlyMessage, true);
+        setDocumentUploadFeedback(friendlyMessage, "error");
+        schedulePortalViewportRestore({
+          sectionCode: DOCUMENT_SECTION_CODE,
+          requirementCode: activeConfig.requirementCode,
+          actionSource: activeConfig.source,
+          focusTarget: true,
+          delay: 80,
+        });
+      }
     }
 
     function readSection(sectionCode) {
@@ -1724,6 +2619,7 @@ export const renderPortalPage = () => {
       state.resumeToken = result.resumeToken;
       state.resumeCode = result.resumeCode;
       saveState();
+      rememberPortalViewport();
       movePendingDraftToApplicationDraft(state.applicationId);
 
       latestBundle = normalizeBundle({
@@ -1746,6 +2642,8 @@ export const renderPortalPage = () => {
       setActivationState("active");
       persistLocalDraftNow();
       updateSectionStatuses(latestBundle);
+      renderDocumentRequirements(latestBundle);
+      syncDocumentUploadFeedback(latestBundle);
 
       return true;
     }
@@ -1773,6 +2671,79 @@ export const renderPortalPage = () => {
         form.querySelectorAll("select").forEach((field) => {
           field.addEventListener("change", syncSection);
         });
+      });
+    }
+
+    function bindFlowViewportTracking() {
+      flowSectionNodes.forEach((sectionNode) => {
+        const sectionCode = sectionNode.getAttribute("data-flow-section");
+        if (!sectionCode) {
+          return;
+        }
+
+        sectionNode.addEventListener("focusin", (event) => {
+          const requirementCode = event.target instanceof Element
+            ? event.target.closest("[data-document-requirement]")?.getAttribute("data-document-requirement") || ""
+            : "";
+          rememberPortalViewport({
+            sectionCode,
+            requirementCode,
+            awaitingDocumentReturn: false,
+          });
+        });
+
+        sectionNode.addEventListener("click", (event) => {
+          if (!(event.target instanceof Element)) {
+            return;
+          }
+
+          const documentCard = event.target.closest("[data-document-requirement]");
+          const actionButton = event.target.closest("[data-document-action-source]");
+          rememberPortalViewport({
+            sectionCode,
+            requirementCode: documentCard?.getAttribute("data-document-requirement") || "",
+            actionSource: actionButton?.getAttribute("data-document-action-source") || "",
+            awaitingDocumentReturn: false,
+          });
+        });
+      });
+
+      window.addEventListener(
+        "scroll",
+        () => {
+          if (flowSectionSyncFrame) {
+            return;
+          }
+
+          flowSectionSyncFrame = window.requestAnimationFrame(() => {
+            flowSectionSyncFrame = null;
+            syncRememberedSectionFromViewport();
+          });
+        },
+        { passive: true }
+      );
+
+      window.addEventListener("pagehide", () => {
+        rememberPortalViewport();
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          rememberPortalViewport();
+          return;
+        }
+
+        const uiState = loadPortalUiState();
+        if (uiState.awaitingDocumentReturn) {
+          schedulePortalViewportRestore({ focusTarget: true, delay: 100 });
+        }
+      });
+
+      window.addEventListener("focus", () => {
+        const uiState = loadPortalUiState();
+        if (uiState.awaitingDocumentReturn) {
+          schedulePortalViewportRestore({ focusTarget: true, delay: 120 });
+        }
       });
     }
 
@@ -1804,6 +2775,25 @@ export const renderPortalPage = () => {
         bundle.application?.status || ""
       );
 
+      if (isReadOnly && sessionRestoreSource !== "query" && !flashMessage) {
+        const completionMessage = flashMessage
+          ? flashMessage + " Start a new application below."
+          : (
+              bundle.application?.status === "submitted" || bundle.application?.status === "in_review"
+                ? "Your previous application was already submitted. Start a new application below."
+                : "This application is closed. Start a new application below."
+            );
+
+        clearStoredApplicationState();
+        setFlash(
+          completionMessage,
+          bundle.application?.status === "submitted" || bundle.application?.status === "in_review"
+            ? "success"
+            : "info"
+        );
+        return;
+      }
+
       if (!isReadOnly) {
         const localDraft = loadLocalDraft(state.applicationId);
         if (localDraft && isRecord(localDraft.sections)) {
@@ -1814,6 +2804,9 @@ export const renderPortalPage = () => {
         persistLocalDraftNow();
       } else {
         clearLocalDraft(state.applicationId);
+        try {
+          localStorage.removeItem(stateKey);
+        } catch {}
       }
 
       setFormsEnabled(!isReadOnly);
@@ -1822,8 +2815,12 @@ export const renderPortalPage = () => {
       setActivationState(isReadOnly ? "readonly" : "active");
       setFlowVisualState(isReadOnly ? "readonly" : "active");
       updateSectionStatuses(bundle);
+      renderDocumentRequirements(bundle);
+      syncDocumentUploadFeedback(bundle);
       syncSubmissionFeedback(bundle);
-      saveState();
+      if (!isReadOnly) {
+        saveState();
+      }
 
       if (submitApplicationButton && isReadOnly) {
         submitApplicationButton.textContent =
@@ -1864,7 +2861,7 @@ export const renderPortalPage = () => {
           body: JSON.stringify(buildApplicationPayload()),
         });
         clearLocalDraft(state.applicationId);
-        await hydrate("Application submitted successfully.");
+        await hydrate(SUBMISSION_RECEIVED_MESSAGE);
       } catch (error) {
         setSubmittingState(false);
 
@@ -1875,16 +2872,16 @@ export const renderPortalPage = () => {
         if (error && error.message === "APPLICATION_ALREADY_SUBMITTED") {
           try {
             clearLocalDraft(state.applicationId);
-            await hydrate();
+            await hydrate(SUBMISSION_RECEIVED_MESSAGE);
           } catch {
             clearLocalDraft(state.applicationId);
             setFormsEnabled(false);
             setSavingState(false);
             setActivationState("readonly");
             setFlowVisualState("readonly");
-            setFlash("Application submitted successfully.", "success");
+            setFlash(SUBMISSION_RECEIVED_MESSAGE, "success");
             setSubmissionFeedback(
-              "Application submitted successfully.",
+              SUBMISSION_RECEIVED_MESSAGE,
               "success"
             );
             if (submitApplicationButton) {
@@ -1899,6 +2896,13 @@ export const renderPortalPage = () => {
           error && error.details ? error.details.sections : null
         );
         if (guideUserToSectionIssue(blockingIssue)) {
+          return;
+        }
+
+        const blockingDocumentIssue = getBlockingDocumentIssueFromDetails(
+          error && error.details ? error.details.documents : null
+        );
+        if (guideUserToDocumentIssue(blockingDocumentIssue)) {
           return;
         }
 
@@ -1920,6 +2924,17 @@ export const renderPortalPage = () => {
       applyFieldMaxLengths();
       bindInputNormalization();
       bindDraftTracking();
+      bindFlowViewportTracking();
+      renderDocumentRequirements(latestBundle);
+      syncDocumentUploadFeedback(latestBundle);
+
+      documentCameraInput?.addEventListener("change", () => {
+        handleDocumentInputChange(documentCameraInput);
+      });
+
+      documentUploadInput?.addEventListener("change", () => {
+        handleDocumentInputChange(documentUploadInput);
+      });
 
       applicantTypeTrigger?.addEventListener("click", () => {
         openApplicantTypePalette();
@@ -1975,6 +2990,7 @@ export const renderPortalPage = () => {
       if (state.applicationId) {
         try {
           await hydrate(restoreMessage);
+          schedulePortalViewportRestore({ delay: 0 });
           return;
         } catch (error) {
           clearStoredApplicationState();
@@ -2016,9 +3032,11 @@ export const renderPortalPage = () => {
         });
         updateSectionStatuses(latestBundle);
         setFlash("Restored your saved in-progress draft.");
+        schedulePortalViewportRestore({ delay: 0 });
         return;
       }
 
+      clearPortalUiState();
       setFlash("Continue below with Section A: General Information.");
     }
 

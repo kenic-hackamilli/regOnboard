@@ -48,6 +48,7 @@ type SectionRow = QueryResultRow & {
 };
 
 type RequirementRow = QueryResultRow & {
+  display_order: number;
   requirement_code: string;
   label: string;
   equivalent_label: string | null;
@@ -94,6 +95,13 @@ type ReviewTaskRow = QueryResultRow & {
   updated_at: string;
 };
 
+type DuplicateApplicationRow = QueryResultRow & {
+  id: string;
+  status: string;
+  company_tin: string | null;
+  company_registration_number: string | null;
+};
+
 type SectionValidationResult = ReturnType<typeof validateSection>;
 
 type ValidatedFormSection = {
@@ -128,6 +136,14 @@ const APPLICATION_SELECT = `
 
 const FORM_SUBMISSION_FINAL_SECTION =
   FORM_SECTION_CODES[FORM_SECTION_CODES.length - 1] ?? "SECTION_A_GENERAL_INFORMATION";
+const DUPLICATE_APPLICATION_STATUSES = [
+  "collecting_documents",
+  "ready_for_submission",
+  "submitted",
+  "in_review",
+  "changes_requested",
+  "approved",
+] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -140,6 +156,9 @@ const assertApplicantType = (value: string): ApplicantType => {
 };
 
 const normalizeCountryKey = (value?: string | null) =>
+  value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
+
+const normalizeCompanyIdentifier = (value?: string | null) =>
   value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
 
 const normalizeCountryOfIncorporation = (
@@ -187,10 +206,19 @@ const recordEvent = async (
 const getRequirements = async (client: PoolClient, applicantType: ApplicantType) =>
   (await client.query<RequirementRow>(
     `
-      SELECT requirement_code, label, equivalent_label, description, is_required, allowed_mime_types, max_files, validation_rules
+      SELECT
+        display_order,
+        requirement_code,
+        label,
+        equivalent_label,
+        description,
+        is_required,
+        allowed_mime_types,
+        max_files,
+        validation_rules
       FROM onboard_document_requirements
       WHERE applicant_type = $1
-      ORDER BY requirement_code
+      ORDER BY display_order, requirement_code
     `,
     [applicantType]
   )).rows;
@@ -203,6 +231,7 @@ const getChecklistDocuments = async (
   (await client.query<ChecklistDocumentRow>(
     `
       SELECT
+        r.display_order,
         r.requirement_code,
         r.label,
         r.equivalent_label,
@@ -221,7 +250,7 @@ const getChecklistDocuments = async (
         ON d.application_id = $1
        AND d.requirement_code = r.requirement_code
       WHERE r.applicant_type = $2
-      ORDER BY r.requirement_code
+      ORDER BY r.display_order, r.requirement_code
     `,
     [applicationId, applicantType]
   )).rows;
@@ -265,32 +294,137 @@ const computeReadiness = (
     sections.find((section) => section.section_code === code)?.is_complete
   ).length;
 
-  const documentsComplete = documents
-    .filter((document) => document.is_required)
-    .every((document) => Boolean(document.document_id));
+  const requiredDocuments = documents.filter((document) => document.is_required);
+  const uploadedRequiredDocumentCount = requiredDocuments.filter((document) =>
+    Boolean(document.document_id)
+  ).length;
+  const missingRequiredDocumentCodes = requiredDocuments
+    .filter((document) => !document.document_id)
+    .map((document) => document.requirement_code);
+  const documentsComplete =
+    requiredDocuments.length === 0 || uploadedRequiredDocumentCount === requiredDocuments.length;
 
-  const totalParts = FORM_SECTION_CODES.length;
-  const completedParts = completedSectionCount;
-  const progressPercent = Math.round((completedParts / totalParts) * 100);
+  const totalParts = FORM_SECTION_CODES.length + requiredDocuments.length;
+  const completedParts = completedSectionCount + uploadedRequiredDocumentCount;
+  const progressPercent = totalParts > 0
+    ? Math.round((completedParts / totalParts) * 100)
+    : 0;
 
   return {
     completedSectionCount,
+    requiredDocumentCount: requiredDocuments.length,
+    uploadedRequiredDocumentCount,
+    missingRequiredDocumentCodes,
     documentsComplete,
-    readyForSubmission: completedSectionCount === FORM_SECTION_CODES.length,
+    hasStartedDocuments: uploadedRequiredDocumentCount > 0,
+    readyForSubmission:
+      completedSectionCount === FORM_SECTION_CODES.length && documentsComplete,
     progressPercent,
   };
 };
 
 const deriveApplicationStatus = (
   currentStatus: string,
-  readyForSubmission: boolean
+  readiness: ReturnType<typeof computeReadiness>
 ) => {
   if (["submitted", "in_review", "approved", "rejected", "changes_requested"].includes(currentStatus)) {
     return currentStatus;
   }
 
-  if (readyForSubmission) return "ready_for_submission";
+  if (readiness.readyForSubmission) return "ready_for_submission";
+  if (readiness.hasStartedDocuments || readiness.completedSectionCount === FORM_SECTION_CODES.length) {
+    return "collecting_documents";
+  }
   return "draft";
+};
+
+const findDuplicateCompanyApplication = async (
+  client: PoolClient,
+  params: {
+    applicationId: string;
+    companyTin?: string | null;
+    companyRegistrationNumber?: string | null;
+  }
+) => {
+  const normalizedTin = normalizeCompanyIdentifier(params.companyTin);
+  const normalizedRegistrationNumber = normalizeCompanyIdentifier(
+    params.companyRegistrationNumber
+  );
+
+  if (!normalizedTin && !normalizedRegistrationNumber) {
+    return null;
+  }
+
+  const values: Array<string | string[]> = [
+    params.applicationId,
+    [...DUPLICATE_APPLICATION_STATUSES],
+  ];
+  const duplicateClauses: string[] = [];
+
+  if (normalizedTin) {
+    values.push(normalizedTin);
+    duplicateClauses.push(`LOWER(BTRIM(company_tin)) = $${values.length}`);
+  }
+
+  if (normalizedRegistrationNumber) {
+    values.push(normalizedRegistrationNumber);
+    duplicateClauses.push(`LOWER(BTRIM(company_registration_number)) = $${values.length}`);
+  }
+
+  if (!duplicateClauses.length) {
+    return null;
+  }
+
+  return (
+    await client.query<DuplicateApplicationRow>(
+      `
+        SELECT id, status, company_tin, company_registration_number
+        FROM onboard_applications
+        WHERE id <> $1
+          AND status = ANY($2::text[])
+          AND (${duplicateClauses.join(" OR ")})
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      values
+    )
+  ).rows[0] ?? null;
+};
+
+const assertNoDuplicateCompanyApplication = async (
+  client: PoolClient,
+  params: {
+    applicationId: string;
+    companyTin?: string | null;
+    companyRegistrationNumber?: string | null;
+  }
+) => {
+  const duplicate = await findDuplicateCompanyApplication(client, params);
+  if (!duplicate) {
+    return;
+  }
+
+  const matchedFields: string[] = [];
+  if (
+    normalizeCompanyIdentifier(params.companyTin)
+    && normalizeCompanyIdentifier(params.companyTin) === normalizeCompanyIdentifier(duplicate.company_tin)
+  ) {
+    matchedFields.push("companyTin");
+  }
+
+  if (
+    normalizeCompanyIdentifier(params.companyRegistrationNumber)
+    && normalizeCompanyIdentifier(params.companyRegistrationNumber)
+      === normalizeCompanyIdentifier(duplicate.company_registration_number)
+  ) {
+    matchedFields.push("companyRegistrationNumber");
+  }
+
+  throw new ApiError(409, "APPLICATION_ALREADY_EXISTS_FOR_COMPANY", {
+    existingApplicationId: duplicate.id,
+    existingStatus: duplicate.status,
+    matchedFields,
+  });
 };
 
 const assertWritableApplication = (application: ApplicationRow) => {
@@ -389,6 +523,12 @@ const persistValidatedApplicationForm = async (
     throw new ApiError(500, "SECTION_A_REQUIRED_FOR_FORM_SAVE");
   }
 
+  await assertNoDuplicateCompanyApplication(client, {
+    applicationId: application.id,
+    companyTin: sectionA.companyTin,
+    companyRegistrationNumber: sectionA.companyRegistrationNumber,
+  });
+
   await client.query(
     `
       UPDATE onboard_applications
@@ -420,14 +560,14 @@ const persistValidatedApplicationForm = async (
   return recalculateApplicationState(client, application);
 };
 
-const recalculateApplicationState = async (
+export const recalculateApplicationState = async (
   client: PoolClient,
   application: ApplicationRow
 ) => {
   const sections = await getSections(client, application.id);
   const documents = await getChecklistDocuments(client, application.id, application.applicant_type);
   const readiness = computeReadiness(sections, documents);
-  const nextStatus = deriveApplicationStatus(application.status, readiness.readyForSubmission);
+  const nextStatus = deriveApplicationStatus(application.status, readiness);
 
   const updatedApplication = (
     await client.query<ApplicationRow>(
@@ -577,11 +717,15 @@ export const createApplication = async (input: {
           validationErrors: section.validation_errors ?? [],
         })),
         documents: checklistDocuments.map((document) => ({
+          displayOrder: document.display_order,
           requirementCode: document.requirement_code,
           label: document.label,
           equivalentLabel: document.equivalent_label,
           description: document.description,
           isRequired: document.is_required,
+          allowedMimeTypes: document.allowed_mime_types ?? [],
+          maxFiles: document.max_files,
+          validationRules: document.validation_rules ?? {},
           uploaded: Boolean(document.document_id),
           documentId: document.document_id,
           documentStatus: document.document_status,
@@ -605,33 +749,37 @@ export const getApplicationBundle = async (applicationId: string, token: string)
   const documentRows = await query<DocumentRow>(
     `
       SELECT
-        id,
-        application_id,
-        requirement_code,
-        source,
-        original_name,
-        mime_type,
-        size_bytes,
-        blob_id,
-        storage_mode,
-        checksum,
-        upload_status,
-        ocr_status,
-        document_status,
-        extracted_data,
-        validation_results,
-        uploaded_at,
-        updated_at
-      FROM onboard_documents
-      WHERE application_id = $1
-      ORDER BY requirement_code
+        d.id,
+        d.application_id,
+        d.requirement_code,
+        d.source,
+        d.original_name,
+        d.mime_type,
+        d.size_bytes,
+        d.blob_id,
+        d.storage_mode,
+        d.checksum,
+        d.upload_status,
+        d.ocr_status,
+        d.document_status,
+        d.extracted_data,
+        d.validation_results,
+        d.uploaded_at,
+        d.updated_at
+      FROM onboard_documents d
+      LEFT JOIN onboard_document_requirements r
+        ON r.applicant_type = $2
+       AND r.requirement_code = d.requirement_code
+      WHERE d.application_id = $1
+      ORDER BY COALESCE(r.display_order, 1000), d.requirement_code
     `,
-    [applicationId]
+    [applicationId, application.applicant_type]
   );
 
   const checklistDocuments = await query<ChecklistDocumentRow>(
     `
       SELECT
+        r.display_order,
         r.requirement_code,
         r.label,
         r.equivalent_label,
@@ -650,7 +798,7 @@ export const getApplicationBundle = async (applicationId: string, token: string)
         ON d.application_id = $1
        AND d.requirement_code = r.requirement_code
       WHERE r.applicant_type = $2
-      ORDER BY r.requirement_code
+      ORDER BY r.display_order, r.requirement_code
     `,
     [applicationId, application.applicant_type]
   );
@@ -676,11 +824,15 @@ export const getApplicationBundle = async (applicationId: string, token: string)
         validationErrors: section.validation_errors ?? [],
       })),
       documents: checklistDocuments.map((document) => ({
+        displayOrder: document.display_order,
         requirementCode: document.requirement_code,
         label: document.label,
         equivalentLabel: document.equivalent_label,
         description: document.description,
         isRequired: document.is_required,
+        allowedMimeTypes: document.allowed_mime_types ?? [],
+        maxFiles: document.max_files,
+        validationRules: document.validation_rules ?? {},
         uploaded: Boolean(document.document_id),
         documentId: document.document_id,
         documentStatus: document.document_status,
@@ -759,6 +911,11 @@ export const saveSection = async (
 
     if (sectionCode === "SECTION_A_GENERAL_INFORMATION" && validation.ok) {
       const sectionA = validation.data as SectionPayloadMap["SECTION_A_GENERAL_INFORMATION"];
+      await assertNoDuplicateCompanyApplication(client, {
+        applicationId,
+        companyTin: sectionA.companyTin,
+        companyRegistrationNumber: sectionA.companyRegistrationNumber,
+      });
       await client.query(
         `
           UPDATE onboard_applications
@@ -913,7 +1070,11 @@ export const submitApplication = async (
       documents = nextState.documents;
       readiness = {
         completedSectionCount: nextState.completedSectionCount,
+        requiredDocumentCount: nextState.requiredDocumentCount,
+        uploadedRequiredDocumentCount: nextState.uploadedRequiredDocumentCount,
+        missingRequiredDocumentCodes: nextState.missingRequiredDocumentCodes,
         documentsComplete: nextState.documentsComplete,
+        hasStartedDocuments: nextState.hasStartedDocuments,
         readyForSubmission: nextState.readyForSubmission,
         progressPercent: nextState.progressPercent,
       };
@@ -922,6 +1083,7 @@ export const submitApplication = async (
     if (!readiness.readyForSubmission) {
       throw new ApiError(400, "APPLICATION_NOT_READY_FOR_SUBMISSION", {
         sections: sections.filter((section) => !section.is_complete).map((section) => section.section_code),
+        documents: readiness.missingRequiredDocumentCodes,
       });
     }
 
