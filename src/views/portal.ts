@@ -921,13 +921,13 @@ export const renderPortalPage = () => {
 
     function saveState() {
       try {
-        localStorage.setItem(stateKey, JSON.stringify(state));
+        sessionStorage.setItem(stateKey, JSON.stringify(state));
       } catch {}
     }
 
     function loadStoredState() {
       try {
-        const raw = localStorage.getItem(stateKey);
+        const raw = sessionStorage.getItem(stateKey);
         if (!raw) {
           return;
         }
@@ -948,6 +948,10 @@ export const renderPortalPage = () => {
       return applicationId ? draftStateKeyPrefix + applicationId : pendingDraftStorageKey;
     }
 
+    function getDraftStorage(applicationId = state.applicationId) {
+      return applicationId ? localStorage : sessionStorage;
+    }
+
     function loadLocalDraft(applicationId = state.applicationId) {
       const draftKey = getDraftStorageKey(applicationId);
       if (!draftKey) {
@@ -955,7 +959,7 @@ export const renderPortalPage = () => {
       }
 
       try {
-        const raw = localStorage.getItem(draftKey);
+        const raw = getDraftStorage(applicationId).getItem(draftKey);
         if (!raw) {
           return null;
         }
@@ -971,7 +975,7 @@ export const renderPortalPage = () => {
       const draftKey = getDraftStorageKey(applicationId);
 
       try {
-        localStorage.removeItem(draftKey);
+        getDraftStorage(applicationId).removeItem(draftKey);
       } catch {}
     }
 
@@ -987,7 +991,7 @@ export const renderPortalPage = () => {
 
       try {
         localStorage.setItem(getDraftStorageKey(applicationId), JSON.stringify(pendingDraft));
-        localStorage.removeItem(pendingDraftStorageKey);
+        clearLocalDraft("");
       } catch {}
     }
 
@@ -998,7 +1002,7 @@ export const renderPortalPage = () => {
       }
 
       try {
-        localStorage.setItem(
+        getDraftStorage().setItem(
           draftKey,
           JSON.stringify({
             profile: {
@@ -1661,6 +1665,7 @@ export const renderPortalPage = () => {
       if (currentApplicationId) {
         clearLocalDraft(currentApplicationId);
       }
+      clearLocalDraft("");
 
       state.applicationId = "";
       state.draftToken = "";
@@ -1669,7 +1674,7 @@ export const renderPortalPage = () => {
       sessionRestoreSource = "none";
 
       try {
-        localStorage.removeItem(stateKey);
+        sessionStorage.removeItem(stateKey);
       } catch {}
 
       clearPortalUiState();
@@ -1883,6 +1888,18 @@ export const renderPortalPage = () => {
       }
 
       return "";
+    }
+
+    function getClosedApplicationMessage(status, flashMessage = "") {
+      if (flashMessage) {
+        return flashMessage;
+      }
+
+      if (status === "submitted" || status === "in_review") {
+        return "This application has already been submitted and cannot be reopened here. Start a new application below.";
+      }
+
+      return "This application is closed and cannot be reopened here. Start a new application below.";
     }
 
     function hideFlashToast() {
@@ -2971,7 +2988,19 @@ export const renderPortalPage = () => {
 
       const responseBundle = await request("/onboard/v1/public/applications/" + state.applicationId);
       const bundle = normalizeBundle(responseBundle);
+      const applicationStatus = bundle.application?.status || "";
+      const isReadOnly = ["submitted", "in_review", "approved", "rejected"].includes(applicationStatus);
       latestBundle = bundle;
+
+      if (isReadOnly) {
+        const completionMessage = getClosedApplicationMessage(applicationStatus, flashMessage);
+        clearStoredApplicationState();
+        setFlash(
+          completionMessage,
+          applicationStatus === "submitted" || applicationStatus === "in_review" ? "success" : "info"
+        );
+        return;
+      }
 
       if (bundle.application?.applicantType && applicantTypeInput) {
         applicantTypeInput.value = bundle.application.applicantType;
@@ -2987,63 +3016,24 @@ export const renderPortalPage = () => {
       resetSectionForms();
       bundle.sections.forEach((section) => fillSection(section.sectionCode, section.data));
 
-      const isReadOnly = ["submitted", "in_review", "approved", "rejected"].includes(
-        bundle.application?.status || ""
-      );
-
-      if (isReadOnly && sessionRestoreSource !== "query" && !flashMessage) {
-        const completionMessage = flashMessage
-          ? flashMessage + " Start a new application below."
-          : (
-              bundle.application?.status === "submitted" || bundle.application?.status === "in_review"
-                ? "Your previous application was already submitted. Start a new application below."
-                : "This application is closed. Start a new application below."
-            );
-
-        clearStoredApplicationState();
-        setFlash(
-          completionMessage,
-          bundle.application?.status === "submitted" || bundle.application?.status === "in_review"
-            ? "success"
-            : "info"
-        );
-        return;
+      const localDraft = loadLocalDraft(state.applicationId);
+      if (localDraft && isRecord(localDraft.sections)) {
+        Object.keys(localDraft.sections).forEach((sectionCode) => {
+          fillSection(sectionCode, localDraft.sections[sectionCode]);
+        });
       }
+      persistLocalDraftNow();
 
-      if (!isReadOnly) {
-        const localDraft = loadLocalDraft(state.applicationId);
-        if (localDraft && isRecord(localDraft.sections)) {
-          Object.keys(localDraft.sections).forEach((sectionCode) => {
-            fillSection(sectionCode, localDraft.sections[sectionCode]);
-          });
-        }
-        persistLocalDraftNow();
-      } else {
-        clearLocalDraft(state.applicationId);
-        try {
-          localStorage.removeItem(stateKey);
-        } catch {}
-      }
-
-      setFormsEnabled(!isReadOnly);
+      setFormsEnabled(true);
       setSavingState(false);
       setSubmittingState(false);
-      setActivationState(isReadOnly ? "readonly" : "active");
-      setFlowVisualState(isReadOnly ? "readonly" : "active");
+      setActivationState("active");
+      setFlowVisualState("active");
       updateSectionStatuses(bundle);
       renderDocumentRequirements(bundle);
       syncDocumentUploadFeedback(bundle);
       syncSubmissionFeedback(bundle);
-      if (!isReadOnly) {
-        saveState();
-      }
-
-      if (submitApplicationButton && isReadOnly) {
-        submitApplicationButton.textContent =
-          bundle.application?.status === "submitted" || bundle.application?.status === "in_review"
-            ? "Submitted"
-            : "Review Closed";
-      }
+      saveState();
 
       if (flashMessage) {
         setFlash(
@@ -3249,36 +3239,7 @@ export const renderPortalPage = () => {
       }
 
       resetLockedPortal();
-      const pendingDraft = loadLocalDraft();
-      if (pendingDraft && isRecord(pendingDraft.sections)) {
-        if (isRecord(pendingDraft.profile)) {
-          if (applicantTypeInput && typeof pendingDraft.profile.applicantType === "string") {
-            applicantTypeInput.value =
-              pendingDraft.profile.applicantType === "international" ? "international" : "local";
-          }
-
-          if (
-            countryOfIncorporationInput
-            && typeof pendingDraft.profile.countryOfIncorporation === "string"
-          ) {
-            countryOfIncorporationInput.value = pendingDraft.profile.countryOfIncorporation;
-            countryOfIncorporationInput.dataset.autoLocal =
-              normalizeCountryName(pendingDraft.profile.countryOfIncorporation) === "kenya"
-                ? "true"
-                : "false";
-          }
-        }
-
-        syncCountryFieldState(false);
-        Object.keys(pendingDraft.sections).forEach((sectionCode) => {
-          fillSection(sectionCode, pendingDraft.sections[sectionCode]);
-        });
-        updateSectionStatuses(latestBundle);
-        setFlash("Restored your saved in-progress draft.");
-        schedulePortalViewportRestore({ delay: 0 });
-        return;
-      }
-
+      clearLocalDraft("");
       clearPortalUiState();
       setFlash("Continue below with Section A: General Information.");
     }

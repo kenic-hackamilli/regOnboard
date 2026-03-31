@@ -59,7 +59,8 @@ npm run db:migrate
 ## Notes
 
 - Applicant access is controlled with draft and resume tokens.
-- The portal keeps in-progress edits in browser storage and only persists the full form to PostgreSQL when the applicant explicitly saves or submits.
+- The portal only restores an in-progress application from an explicit resume link or the current browser tab session, and it clears submitted or closed applications instead of repopulating their fields into the form.
+- The portal keeps application-linked in-progress edits in browser storage and only persists the full form to PostgreSQL when the applicant explicitly saves or submits.
 - Admin access is controlled with `ADMIN_API_TOKEN`.
 - Documents are stored inside PostgreSQL in a dedicated blob table.
 - `GET /health` returns live database connectivity details and responds with `503` if PostgreSQL is unavailable.
