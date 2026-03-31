@@ -412,9 +412,9 @@ button.palette-option,
 .button.palette-option {
   display: grid;
   align-content: start;
-  gap: 10px;
-  min-height: 188px;
-  padding: 18px;
+  gap: 8px;
+  min-height: 148px;
+  padding: 16px;
   border-radius: 22px;
   border: 1px solid rgba(52,58,64,0.08);
   background: rgba(255,255,255,0.84);
