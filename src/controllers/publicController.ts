@@ -17,6 +17,32 @@ import { ApiError } from "../utils/errors.js";
 import { renderPortalPage } from "../views/portal.js";
 
 const ok = (reply: FastifyReply, data: unknown) => reply.send({ data, error: null });
+const BASE64_CONTENT_PATTERN =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+const coerceString = (value: unknown) =>
+  typeof value === "string" ? value.trim() : "";
+
+const decodeBase64DocumentContent = (value: string) => {
+  const normalized = value
+    .replace(/^data:[^,]+;base64,/, "")
+    .replace(/\s+/g, "");
+
+  if (!normalized) {
+    throw new ApiError(400, "FILE_REQUIRED");
+  }
+
+  if (!BASE64_CONTENT_PATTERN.test(normalized)) {
+    throw new ApiError(400, "INVALID_FILE_ENCODING");
+  }
+
+  const content = Buffer.from(normalized, "base64");
+  if (!content.byteLength) {
+    throw new ApiError(400, "EMPTY_FILE");
+  }
+
+  return content;
+};
 
 const getApplicantToken = (request: FastifyRequest) => {
   const draftToken = request.headers["x-draft-token"];
@@ -88,29 +114,53 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
   app.post("/onboard/v1/public/applications/:id/documents", async (request, reply) => {
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
-    const file = await request.file();
+    const contentType = String(request.headers["content-type"] ?? "");
+    let requirementCode = "";
+    let source = "upload";
+    let filename = "document.bin";
+    let mimeType = "application/octet-stream";
+    let content: Buffer = Buffer.alloc(0);
 
-    if (!file) {
-      throw new ApiError(400, "FILE_REQUIRED");
+    if (contentType.includes("multipart/form-data")) {
+      const file = await request.file();
+
+      if (!file) {
+        throw new ApiError(400, "FILE_REQUIRED");
+      }
+
+      const fields = file.fields as Record<string, { value?: string }>;
+      requirementCode = fields.requirementCode?.value?.trim() ?? "";
+      source = fields.source?.value?.trim() || "upload";
+      filename = file.filename;
+      mimeType = file.mimetype;
+      content = await file.toBuffer();
+    } else {
+      const body = (request.body ?? {}) as {
+        requirementCode?: unknown;
+        source?: unknown;
+        filename?: unknown;
+        mimeType?: unknown;
+        contentBase64?: unknown;
+      };
+
+      requirementCode = coerceString(body.requirementCode);
+      source = coerceString(body.source) || "upload";
+      filename = coerceString(body.filename) || filename;
+      mimeType = coerceString(body.mimeType) || mimeType;
+      content = decodeBase64DocumentContent(coerceString(body.contentBase64));
     }
-
-    const fields = file.fields as Record<string, { value?: string }>;
-    const requirementCode = fields.requirementCode?.value;
-    const source = fields.source?.value ?? "upload";
 
     if (!requirementCode) {
       throw new ApiError(400, "REQUIREMENT_CODE_REQUIRED");
     }
-
-    const content = await file.toBuffer();
 
     const result = await uploadDocument({
       applicationId: params.id,
       token,
       requirementCode,
       source,
-      filename: file.filename,
-      mimeType: file.mimetype,
+      filename,
+      mimeType,
       content,
     });
 

@@ -482,6 +482,17 @@ select:focus {
   box-shadow: 0 0 0 4px rgba(0,151,57,0.08);
   background: var(--white);
 }
+input.is-invalid,
+textarea.is-invalid,
+select.is-invalid,
+.input-with-prefix.is-invalid {
+  border-color: rgba(198,40,40,0.56);
+  box-shadow: 0 0 0 4px rgba(198,40,40,0.12);
+  background: rgba(255,250,250,0.98);
+}
+.input-with-prefix.is-invalid input {
+  background: transparent;
+}
 input:disabled,
 textarea:disabled,
 select:disabled {
@@ -880,6 +891,70 @@ textarea { min-height: 120px; resize: vertical; }
   color: var(--gray900);
   border: 1px solid rgba(23,162,184,0.18);
 }
+.flash-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 1000;
+  transition: opacity 180ms ease, visibility 180ms ease;
+}
+.flash-overlay.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+.flash-toast {
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(198,40,40,0.18);
+  background:
+    radial-gradient(circle at top right, rgba(227,6,19,0.1), transparent 38%),
+    linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,247,247,0.98));
+  box-shadow: 0 28px 60px rgba(24,32,24,0.18);
+  backdrop-filter: blur(12px);
+  color: var(--gray900);
+  transform: translateY(18px) scale(0.98);
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+.flash-overlay.is-active .flash-toast {
+  transform: translateY(0) scale(1);
+}
+.flash-toast-label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--error);
+}
+.flash-toast-message {
+  font-size: 15px;
+  line-height: 1.6;
+  font-weight: 600;
+}
+.flash-toast-close {
+  justify-self: end;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: rgba(52,58,64,0.08);
+  border: 1px solid rgba(52,58,64,0.08);
+  color: var(--gray900);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.flash-toast-close:hover,
+.flash-toast-close:focus-visible {
+  background: rgba(52,58,64,0.12);
+}
 .submission-box {
   display: grid;
   gap: 12px;
@@ -977,6 +1052,13 @@ export const renderShell = (params: {
       </section>
       ${params.body}
     </main>
+    <div id="flashOverlay" class="flash-overlay" aria-hidden="true">
+      <div id="flashToast" class="flash-toast" role="alert" aria-live="assertive">
+        <div id="flashToastLabel" class="flash-toast-label">Needs attention</div>
+        <div id="flashToastMessage" class="flash-toast-message"></div>
+        <button id="flashToastClose" type="button" class="flash-toast-close">Close</button>
+      </div>
+    </div>
     <script type="module">
       ${params.scripts}
     </script>

@@ -39,18 +39,18 @@ export const renderPortalPage = () => {
               <div class="palette-dialog-header">
                 <div class="section-kicker">Applicant Profile</div>
                 <h3 id="applicantTypeDialogTitle">Choose registrar type</h3>
-                <p>Select the profile that best matches this application. You can switch it any time before the application starts.</p>
+                <p>Select the option that matches the applicant location.</p>
               </div>
               <div class="palette-options">
                 <button type="button" class="palette-option" data-applicant-type-option="local" aria-pressed="true">
                   <span class="palette-option-badge">Local</span>
                   <strong>Local Registrar</strong>
-                  <p>Best for Kenya-based applicants. Kenya is filled automatically and the phone guidance stays local-friendly.</p>
+                  <p>Applies to registrars within Kenya.</p>
                 </button>
                 <button type="button" class="palette-option" data-applicant-type-option="international" aria-pressed="false">
                   <span class="palette-option-badge">International</span>
                   <strong>International Registrar</strong>
-                  <p>Best for applicants outside Kenya. You will choose the country of incorporation and get international phone guidance.</p>
+                  <p>Applies to registrars outside Kenya.</p>
                 </button>
               </div>
               <div class="palette-dialog-footer">
@@ -314,13 +314,13 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section G</div>
             <h2>Supporting Documents</h2>
-            <p>Capture or upload each required document in checklist order. Camera capture is the primary path, with PDF upload available for documents that already exist digitally.</p>
+            <p>Upload each required document in checklist order. Use PDF or image files for business documents, and use the camera only when you need to capture a fresh copy.</p>
           </div>
           <div class="section-main">
             <div class="info-box">
               <div class="stack">
                 <strong>Document checklist</strong>
-                <div class="subtle">Upload each required document here. When the camera or file picker closes, the checklist returns you to the same document so you can continue without losing your place.</div>
+                <div class="subtle">Business documents are best uploaded from files you already have. Camera capture remains available, and passport photo capture is prioritized when needed.</div>
               </div>
             </div>
             <div id="documentUploadFeedback" class="submission-feedback info">Lock the application profile above, then prepare the checklist here before uploading documents.</div>
@@ -371,9 +371,15 @@ export const renderPortalPage = () => {
     let viewportRestoreTimer = null;
     let documentHighlightTimer = null;
     let flowSectionSyncFrame = null;
+    let flashToastTimer = null;
     let lastRememberedSectionCode = "";
 
     const flashBox = document.getElementById("flashBox");
+    const flashOverlay = document.getElementById("flashOverlay");
+    const flashToast = document.getElementById("flashToast");
+    const flashToastLabel = document.getElementById("flashToastLabel");
+    const flashToastMessage = document.getElementById("flashToastMessage");
+    const flashToastClose = document.getElementById("flashToastClose");
     const activationIndicator = document.getElementById("activationIndicator");
     const activationHint = document.getElementById("activationHint");
     const applicationFlow = document.getElementById("applicationFlow");
@@ -1691,6 +1697,25 @@ export const renderPortalPage = () => {
       return form ? form.closest(".application-section") : null;
     }
 
+    function clearInvalidFieldHighlights() {
+      document.querySelectorAll(".is-invalid").forEach((node) => {
+        node.classList.remove("is-invalid");
+      });
+    }
+
+    function markFieldInvalid(field) {
+      if (!field || !field.classList) {
+        return;
+      }
+
+      field.classList.add("is-invalid");
+
+      const groupedField = field.closest(".input-with-prefix");
+      if (groupedField) {
+        groupedField.classList.add("is-invalid");
+      }
+    }
+
     function formatValidationMessage(message) {
       const text = String(message || "").trim();
       if (!text) {
@@ -1791,6 +1816,9 @@ export const renderPortalPage = () => {
         || form?.querySelector("input:not([disabled]), textarea:not([disabled]), select:not([disabled])")
         || null;
 
+      clearInvalidFieldHighlights();
+      markFieldInvalid(focusTarget);
+
       if (focusTarget && typeof focusTarget.focus === "function") {
         setTimeout(() => {
           try {
@@ -1857,6 +1885,49 @@ export const renderPortalPage = () => {
       return "";
     }
 
+    function hideFlashToast() {
+      if (flashToastTimer) {
+        clearTimeout(flashToastTimer);
+        flashToastTimer = null;
+      }
+
+      if (!flashOverlay) {
+        return;
+      }
+
+      flashOverlay.classList.remove("is-active");
+      flashOverlay.setAttribute("aria-hidden", "true");
+    }
+
+    function showFlashToast(message, tone = "error") {
+      if (!flashOverlay || !flashToastMessage || !message) {
+        return;
+      }
+
+      if (flashToastTimer) {
+        clearTimeout(flashToastTimer);
+      }
+
+      if (flashToast) {
+        flashToast.dataset.tone = tone;
+      }
+      if (flashToastLabel) {
+        flashToastLabel.textContent =
+          tone === "error"
+            ? "Needs attention"
+            : tone === "success"
+              ? "Saved"
+              : "Notice";
+      }
+      flashToastMessage.textContent = message;
+      flashOverlay.classList.add("is-active");
+      flashOverlay.setAttribute("aria-hidden", "false");
+
+      flashToastTimer = setTimeout(() => {
+        hideFlashToast();
+      }, tone === "error" ? 5000 : 3200);
+    }
+
     function setFlash(message, toneOrIsError = "info") {
       const tone = toneOrIsError === true
         ? "error"
@@ -1878,6 +1949,12 @@ export const renderPortalPage = () => {
           : tone === "success"
             ? "rgba(40,167,69,0.2)"
             : "rgba(23,162,184,0.18)";
+
+      if (tone === "error") {
+        showFlashToast(message, tone);
+      } else {
+        hideFlashToast();
+      }
     }
 
     function getFriendlyErrorMessage(error, fallback) {
@@ -1893,6 +1970,12 @@ export const renderPortalPage = () => {
           "The selected document is empty. Choose another file and try again.",
         FILE_TOO_LARGE:
           "The selected document is too large. Use a smaller file or capture a compressed image.",
+        INVALID_FILE_ENCODING:
+          "We could not read the selected document. Choose it again and try once more.",
+        FAILED_TO_READ_FILE:
+          "This device could not read the selected document. Choose it again and retry.",
+        FILE_READER_UNAVAILABLE:
+          "This device does not support the fallback uploader. Try again or update the app.",
         UNSUPPORTED_MIME_TYPE:
           "This document type is not allowed for the selected requirement.",
         INVALID_REQUIREMENT_CODE:
@@ -1996,6 +2079,14 @@ export const renderPortalPage = () => {
         return requirementAllowsImages(requirement) ? "image/*" : "";
       }
 
+      if (source === "pdf") {
+        return requirementAllowsPdf(requirement) ? "application/pdf" : "";
+      }
+
+      if (source === "image") {
+        return requirementAllowsImages(requirement) ? "image/*" : "";
+      }
+
       const acceptedTypes = [];
       if (requirementAllowsPdf(requirement)) {
         acceptedTypes.push("application/pdf");
@@ -2009,6 +2100,34 @@ export const renderPortalPage = () => {
 
     function getCameraCaptureMode(requirementCode) {
       return requirementCode === "PASSPORT_PHOTO" ? "user" : "environment";
+    }
+
+    function prefersCameraPrimary(requirement) {
+      return requirement?.requirementCode === "PASSPORT_PHOTO";
+    }
+
+    function getDocumentPickerGuidance(requirement) {
+      const cameraPrimary = prefersCameraPrimary(requirement);
+      const allowsPdf = requirementAllowsPdf(requirement);
+      const allowsImages = requirementAllowsImages(requirement);
+
+      if (cameraPrimary) {
+        return "Best source: capture a clear passport-style photo, or upload an existing image file.";
+      }
+
+      if (allowsPdf && allowsImages) {
+        return "Best source: upload a PDF from Files, Downloads, Drive, or email. Images are also accepted when needed.";
+      }
+
+      if (allowsPdf) {
+        return "Best source: upload a PDF document from Files, Downloads, Drive, or email.";
+      }
+
+      if (allowsImages) {
+        return "Use a clear image file or capture a fresh copy if needed.";
+      }
+
+      return "Choose the clearest document source available.";
     }
 
     function getDownloadToken() {
@@ -2293,6 +2412,7 @@ export const renderPortalPage = () => {
 
       checklistDocuments.forEach((requirement, index) => {
         const uploadedDocument = uploadedDocumentMap.get(requirement.requirementCode) || null;
+        const cameraPrimary = prefersCameraPrimary(requirement);
         const node = document.createElement("div");
         node.className = "list-item stack doc-card";
         node.setAttribute("data-document-requirement", requirement.requirementCode);
@@ -2331,18 +2451,31 @@ export const renderPortalPage = () => {
         status.textContent = uploadedDocument
           ? "Uploaded as " + (uploadedDocument.originalName || "document")
             + (uploadedDocument.sizeBytes ? " • " + formatFileSize(uploadedDocument.sizeBytes) : "")
-          : "Accepted types: " + buildFileAcceptAttribute(requirement, "upload").replace(/,/g, ", ");
+          : getDocumentPickerGuidance(requirement);
         node.appendChild(status);
 
         const actions = document.createElement("div");
         actions.className = "doc-actions";
 
+        const openInputPicker = (acceptMode, config) => {
+          activeDocumentInputConfig = config;
+
+          if (documentUploadInput) {
+            documentUploadInput.accept = buildFileAcceptAttribute(requirement, acceptMode);
+            documentUploadInput.removeAttribute("capture");
+            documentUploadInput.click();
+          }
+        };
+
+        let captureButton = null;
         if (requirementAllowsImages(requirement)) {
-          const captureButton = document.createElement("button");
+          captureButton = document.createElement("button");
           captureButton.type = "button";
-          captureButton.className = uploadedDocument ? "ghost" : "secondary";
+          captureButton.className = uploadedDocument ? "ghost" : (cameraPrimary ? "" : "secondary");
           captureButton.disabled = isReadOnly || pendingDocumentUploads.has(requirement.requirementCode);
-          captureButton.textContent = uploadedDocument ? "Replace with camera" : "Capture document";
+          captureButton.textContent = uploadedDocument
+            ? (cameraPrimary ? "Replace with camera" : "Capture replacement")
+            : (cameraPrimary ? "Capture photo" : "Capture document");
           captureButton.setAttribute("data-document-action-source", "camera");
           captureButton.addEventListener("click", () => {
             rememberPortalViewport({
@@ -2362,43 +2495,45 @@ export const renderPortalPage = () => {
               documentCameraInput.click();
             }
           });
-          actions.appendChild(captureButton);
         }
 
-        const uploadButton = document.createElement("button");
-        uploadButton.type = "button";
-        uploadButton.className = uploadedDocument ? "ghost" : "";
-        uploadButton.disabled = isReadOnly || pendingDocumentUploads.has(requirement.requirementCode);
-        uploadButton.textContent = uploadedDocument ? "Replace file" : "Upload file";
-        uploadButton.setAttribute("data-document-action-source", "upload");
-        uploadButton.addEventListener("click", () => {
-          rememberPortalViewport({
-            sectionCode: DOCUMENT_SECTION_CODE,
-            requirementCode: requirement.requirementCode,
-            actionSource: "upload",
-            awaitingDocumentReturn: true,
+        const uploadPdfButton = (requirementAllowsPdf(requirement) || cameraPrimary)
+          ? document.createElement("button")
+          : null;
+        if (uploadPdfButton) {
+          uploadPdfButton.type = "button";
+          uploadPdfButton.className = uploadedDocument ? "ghost" : (cameraPrimary ? "secondary" : "");
+          uploadPdfButton.disabled = isReadOnly || pendingDocumentUploads.has(requirement.requirementCode);
+          uploadPdfButton.textContent = uploadedDocument
+            ? (cameraPrimary ? "Replace image" : "Replace with PDF")
+            : (cameraPrimary ? "Upload image" : "Upload PDF");
+          uploadPdfButton.setAttribute("data-document-action-source", "upload");
+          uploadPdfButton.addEventListener("click", () => {
+            rememberPortalViewport({
+              sectionCode: DOCUMENT_SECTION_CODE,
+              requirementCode: requirement.requirementCode,
+              actionSource: "upload",
+              awaitingDocumentReturn: true,
+            });
+            openInputPicker(cameraPrimary ? "image" : "pdf", {
+              requirementCode: requirement.requirementCode,
+              source: "upload",
+            });
           });
-          activeDocumentInputConfig = {
-            requirementCode: requirement.requirementCode,
-            source: "upload",
-          };
+        }
 
-          if (documentUploadInput) {
-            documentUploadInput.accept = buildFileAcceptAttribute(requirement, "upload");
-            documentUploadInput.removeAttribute("capture");
-            documentUploadInput.click();
+        if (cameraPrimary && captureButton) {
+          actions.appendChild(captureButton);
+          if (uploadPdfButton) {
+            actions.appendChild(uploadPdfButton);
           }
-        });
-        actions.appendChild(uploadButton);
-
-        if (uploadedDocument?.id) {
-          const downloadLink = document.createElement("a");
-          downloadLink.className = "button ghost";
-          downloadLink.target = "_blank";
-          downloadLink.rel = "noreferrer";
-          downloadLink.textContent = "Download";
-          downloadLink.href = buildDocumentDownloadUrl(uploadedDocument.id);
-          actions.appendChild(downloadLink);
+        } else {
+          if (uploadPdfButton) {
+            actions.appendChild(uploadPdfButton);
+          }
+          if (captureButton) {
+            actions.appendChild(captureButton);
+          }
         }
 
         node.appendChild(actions);
@@ -2430,6 +2565,83 @@ export const renderPortalPage = () => {
       return payload.data ?? payload;
     }
 
+    function buildDocumentUploadPath() {
+      return "/onboard/v1/public/applications/" + state.applicationId + "/documents";
+    }
+
+    function shouldRetryDocumentUploadWithBase64(error) {
+      const statusCode = Number(error && error.statusCode);
+      if (Number.isFinite(statusCode) && statusCode > 0) {
+        return false;
+      }
+
+      const message = error && error.message ? String(error.message).toLowerCase() : "";
+      return (
+        !message
+        || message === "request failed"
+        || message === "failed to fetch"
+        || message === "network request failed"
+        || message.includes("network")
+        || message.includes("fetch")
+      );
+    }
+
+    function readFileAsDataUrl(file) {
+      if (typeof FileReader !== "function") {
+        return Promise.reject(new Error("FILE_READER_UNAVAILABLE"));
+      }
+
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string" && reader.result) {
+            resolve(reader.result);
+            return;
+          }
+
+          reject(new Error("FAILED_TO_READ_FILE"));
+        };
+        reader.onerror = () => {
+          reject(new Error("FAILED_TO_READ_FILE"));
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadDocumentWithMultipart(file, config) {
+      const formData = new FormData();
+      formData.append("requirementCode", config.requirementCode);
+      formData.append("source", config.source);
+      formData.append("file", file, file.name);
+
+      await request(buildDocumentUploadPath(), {
+        method: "POST",
+        body: formData,
+      });
+    }
+
+    async function uploadDocumentWithBase64(file, config) {
+      const dataUrl = await readFileAsDataUrl(file);
+      const contentBase64 = String(dataUrl).replace(/^data:[^,]+,/, "");
+      if (!contentBase64) {
+        throw new Error("FAILED_TO_READ_FILE");
+      }
+
+      await request(buildDocumentUploadPath(), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          requirementCode: config.requirementCode,
+          source: config.source,
+          filename: file.name || "document.bin",
+          mimeType: file.type || "application/octet-stream",
+          contentBase64,
+        }),
+      });
+    }
+
     async function uploadDocumentForRequirement(file, config) {
       if (!config?.requirementCode || !config?.source) {
         throw new Error("INVALID_REQUIREMENT_CODE");
@@ -2455,15 +2667,19 @@ export const renderPortalPage = () => {
       setDocumentUploadFeedback("Uploading " + requirementLabel + "...", "info");
 
       try {
-        const formData = new FormData();
-        formData.append("requirementCode", config.requirementCode);
-        formData.append("source", config.source);
-        formData.append("file", preparedFile, preparedFile.name);
+        try {
+          await uploadDocumentWithMultipart(preparedFile, config);
+        } catch (error) {
+          if (!shouldRetryDocumentUploadWithBase64(error)) {
+            throw error;
+          }
 
-        await request("/onboard/v1/public/applications/" + state.applicationId + "/documents", {
-          method: "POST",
-          body: formData,
-        });
+          setDocumentUploadFeedback(
+            "Retrying " + requirementLabel + " with mobile-safe upload...",
+            "info"
+          );
+          await uploadDocumentWithBase64(preparedFile, config);
+        }
 
         pendingDocumentUploads.delete(config.requirementCode);
         await hydrate(requirementLabel + " uploaded successfully.");
@@ -2976,6 +3192,33 @@ export const renderPortalPage = () => {
       countryOfIncorporationInput?.addEventListener("blur", () => {
         normalizeCountrySelection();
         scheduleLocalDraftSave();
+      });
+
+      document.querySelectorAll("input, textarea, select").forEach((field) => {
+        field.addEventListener("input", () => {
+          field.classList.remove("is-invalid");
+          field.closest(".input-with-prefix")?.classList.remove("is-invalid");
+        });
+        field.addEventListener("change", () => {
+          field.classList.remove("is-invalid");
+          field.closest(".input-with-prefix")?.classList.remove("is-invalid");
+        });
+      });
+
+      flashToastClose?.addEventListener("click", () => {
+        hideFlashToast();
+      });
+
+      flashOverlay?.addEventListener("click", (event) => {
+        if (event.target === flashOverlay) {
+          hideFlashToast();
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          hideFlashToast();
+        }
       });
 
       phoneFieldDecorators.forEach((field) => {

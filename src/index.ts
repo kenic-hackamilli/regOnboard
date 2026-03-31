@@ -15,10 +15,12 @@ import { ApiError, isApiError } from "./utils/errors.js";
 import { logger } from "./config/logger.js";
 
 export const createApp = async () => {
+  // JSON base64 fallback uploads need more room than the raw file size.
+  const bodyLimit = Math.ceil(env.MAX_UPLOAD_BYTES * 1.5) + 1024 * 1024;
   const app = Fastify({
     logger,
     trustProxy: true,
-    bodyLimit: env.MAX_UPLOAD_BYTES + 1024 * 1024,
+    bodyLimit,
   });
 
   await app.register(multipart, {
