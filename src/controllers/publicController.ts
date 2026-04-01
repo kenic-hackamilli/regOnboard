@@ -13,6 +13,17 @@ import {
   listDocuments,
   uploadDocument,
 } from "../services/documentService.js";
+import {
+  assertApplicantPortalAcceptingWrites,
+  getApplicantPortalStatus,
+} from "../services/portalStatusService.js";
+import {
+  applyHtmlSecurityHeaders,
+  clearApplicantSessionCookie,
+  createAssetNonce,
+  getApplicantSessionToken,
+  setApplicantSessionCookie,
+} from "../utils/httpSecurity.js";
 import { ApiError } from "../utils/errors.js";
 import { renderPortalPage } from "../views/portal.js";
 
@@ -45,11 +56,13 @@ const decodeBase64DocumentContent = (value: string) => {
 };
 
 const getApplicantToken = (request: FastifyRequest) => {
+  const cookieToken = getApplicantSessionToken(request);
   const draftToken = request.headers["x-draft-token"];
   const resumeToken = request.headers["x-resume-token"];
   const tokenFromQuery = (request.query as { token?: string } | undefined)?.token;
 
   const token =
+    (typeof cookieToken === "string" && cookieToken.trim()) ||
     (typeof draftToken === "string" && draftToken.trim()) ||
     (typeof resumeToken === "string" && resumeToken.trim()) ||
     (typeof tokenFromQuery === "string" && tokenFromQuery.trim()) ||
@@ -63,11 +76,46 @@ const getApplicantToken = (request: FastifyRequest) => {
 };
 
 export const registerPublicRoutes = async (app: FastifyInstance) => {
-  app.get("/portal", async (_request, reply) => {
-    reply.type("text/html").send(renderPortalPage());
+  app.get("/portal", async (request, reply) => {
+    const query = (request.query ?? {}) as { applicationId?: string; token?: string };
+    const applicationId = coerceString(query.applicationId);
+    const token = coerceString(query.token);
+
+    if (applicationId && token) {
+      setApplicantSessionCookie(reply, token);
+      return reply.redirect(`/portal?applicationId=${encodeURIComponent(applicationId)}`);
+    }
+
+    const portalStatus = await getApplicantPortalStatus();
+    const nonce = createAssetNonce();
+    applyHtmlSecurityHeaders(reply, nonce);
+    reply.type("text/html").send(renderPortalPage({ nonce, portalStatus }));
   });
 
+  app.get("/portal/resume", async (request, reply) => {
+    const query = (request.query ?? {}) as { applicationId?: string; token?: string };
+    const applicationId = coerceString(query.applicationId);
+    const token = coerceString(query.token);
+
+    if (!applicationId || !token) {
+      throw new ApiError(400, "INVALID_RESUME_LINK");
+    }
+
+    setApplicantSessionCookie(reply, token);
+    return reply.redirect(`/portal?applicationId=${encodeURIComponent(applicationId)}`);
+  });
+
+  app.post("/onboard/v1/public/session/clear", async (_request, reply) => {
+    clearApplicantSessionCookie(reply);
+    return ok(reply, { cleared: true });
+  });
+
+  app.get("/onboard/v1/public/portal-status", async (_request, reply) =>
+    ok(reply, await getApplicantPortalStatus())
+  );
+
   app.post("/onboard/v1/public/applications", async (request, reply) => {
+    await assertApplicantPortalAcceptingWrites();
     const body = (request.body ?? {}) as {
       applicantType?: string;
       countryOfIncorporation?: string | null;
@@ -78,7 +126,12 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
       countryOfIncorporation: body.countryOfIncorporation ?? null,
     });
 
-    return ok(reply, result);
+    setApplicantSessionCookie(reply, result.draftToken);
+
+    return ok(reply, {
+      application: result.application,
+      checklist: result.checklist,
+    });
   });
 
   app.get("/onboard/v1/public/applications/:id", async (request, reply) => {
@@ -88,12 +141,14 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
   });
 
   app.patch("/onboard/v1/public/applications/:id/sections/:sectionCode", async (request, reply) => {
+    await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string; sectionCode: string };
     return ok(reply, await saveSection(params.id, token, params.sectionCode, request.body));
   });
 
   app.put("/onboard/v1/public/applications/:id/form", async (request, reply) => {
+    await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await saveApplicationForm(params.id, token, request.body));
@@ -112,6 +167,7 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
   });
 
   app.post("/onboard/v1/public/applications/:id/documents", async (request, reply) => {
+    await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     const contentType = String(request.headers["content-type"] ?? "");
@@ -176,12 +232,14 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
   });
 
   app.post("/onboard/v1/public/applications/:id/resume/request", async (request, reply) => {
+    await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await issueResumeToken(params.id, token));
   });
 
   app.post("/onboard/v1/public/applications/:id/submit", async (request, reply) => {
+    await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await submitApplication(params.id, token, request.body));

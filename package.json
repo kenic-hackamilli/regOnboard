@@ -12,6 +12,7 @@
     "db:stop": "tsx scripts/db.ts stop",
     "db:status": "tsx scripts/db.ts status",
     "db:migrate": "tsx scripts/migrate.ts",
+    "admin": "tsx scripts/admin.ts",
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {

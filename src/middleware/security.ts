@@ -10,6 +10,6 @@ export const registerSecurity = async (app: FastifyInstance) => {
 
   await app.register(cors, {
     origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",").map((value) => value.trim()),
-    credentials: false,
+    credentials: true,
   });
 };

@@ -1039,7 +1039,7 @@ export const issueResumeToken = async (applicationId: string, token: string) =>
       applicationId,
       resumeToken,
       resumeCode,
-      resumeUrl: `${env.PUBLIC_BASE_URL}/portal?applicationId=${application.id}&token=${resumeToken}`,
+      resumeUrl: `${env.PUBLIC_BASE_URL}/portal/resume?applicationId=${application.id}&token=${resumeToken}`,
     };
   });
 

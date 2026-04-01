@@ -1,6 +1,6 @@
 import { renderShell } from "./shared.js";
 
-export const renderAdminPage = () => {
+export const renderAdminPage = (options: { nonce?: string } = {}) => {
   const body = `
     <div class="grid two">
       <section class="card stack">
@@ -180,5 +180,6 @@ export const renderAdminPage = () => {
       "Review registrar submissions, download PostgreSQL-backed documents, and move applications through the accreditation workflow.",
     body,
     scripts,
+    ...(options.nonce ? { nonce: options.nonce } : {}),
   });
 };

@@ -6,6 +6,7 @@ import {
   listApplicationsForAdmin,
   updateReviewState,
 } from "../services/reviewService.js";
+import { applyHtmlSecurityHeaders, createAssetNonce } from "../utils/httpSecurity.js";
 import { ApiError } from "../utils/errors.js";
 import { renderAdminPage } from "../views/admin.js";
 
@@ -33,7 +34,9 @@ export const registerAdminRoutes = async (app: FastifyInstance) => {
     if (!env.ADMIN_PORTAL_ENABLED) {
       throw new ApiError(404, "NOT_FOUND");
     }
-    reply.type("text/html").send(renderAdminPage());
+    const nonce = createAssetNonce();
+    applyHtmlSecurityHeaders(reply, nonce);
+    reply.type("text/html").send(renderAdminPage({ nonce }));
   });
 
   app.get("/onboard/v1/admin/applications", async (request, reply) => {

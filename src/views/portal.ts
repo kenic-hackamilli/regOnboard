@@ -2,112 +2,168 @@ import {
   COUNTRY_OF_INCORPORATION_MAX_LENGTH,
   SECTION_FIELD_MAX_LENGTHS,
 } from "../utils/sections.js";
+import { documentWorkflowClientScript } from "./portal/documentWorkflow.js";
 import { renderShell } from "./shared.js";
 
-export const renderPortalPage = () => {
+const serializeForScript = (value: unknown) =>
+  JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+
+export const renderPortalPage = (options: {
+  nonce?: string;
+  portalStatus?: {
+    portalKey: string;
+    status: "active" | "inactive";
+    reason: string;
+    updatedBy: string;
+    updatedAt: string;
+  };
+} = {}) => {
   const body = `
-    <section class="start-panel">
-      <div class="start-intro">
-        <div class="section-kicker">Registrar Application</div>
-        <h2>Start your registrar application</h2>
-        <p>Select the registrar type once, confirm the country of incorporation where needed, then continue directly to Section A and complete the form for review.</p>
-      </div>
-
-      <div class="row">
-        <div class="field-block applicant-type-field">
-          <div>Applicant Type<span class="required-mark">*</span></div>
-          <select id="applicantType" class="visually-hidden-control" tabindex="-1" aria-hidden="true">
-            <option value="local">Local Registrar</option>
-            <option value="international">International Registrar</option>
-          </select>
-          <button
-            id="applicantTypeTrigger"
-            type="button"
-            class="palette-trigger"
-            aria-haspopup="dialog"
-            aria-expanded="false"
-            aria-controls="applicantTypeDialog"
-          >
-            <span class="palette-trigger-kicker">Registrar type</span>
-            <strong id="applicantTypeDisplay">Local Registrar</strong>
-            <span id="applicantTypeSummary" class="palette-trigger-summary">Kenya is used automatically for local applications.</span>
-            <span class="palette-trigger-action">Choose registrar type</span>
-          </button>
-          <span id="applicantTypeHint" class="hint">Local applications use Kenya.</span>
-          <dialog id="applicantTypeDialog" class="palette-dialog" aria-labelledby="applicantTypeDialogTitle">
-            <div class="palette-dialog-shell">
-              <div class="palette-dialog-header">
-                <div class="section-kicker">Applicant Profile</div>
-                <h3 id="applicantTypeDialogTitle">Choose registrar type</h3>
-                <p>Select the option that matches the applicant location.</p>
-              </div>
-              <div class="palette-options">
-                <button type="button" class="palette-option" data-applicant-type-option="local" aria-pressed="true">
-                  <span class="palette-option-badge">Local</span>
-                  <strong>Local Registrar</strong>
-                  <p>Applies to registrars within Kenya.</p>
-                </button>
-                <button type="button" class="palette-option" data-applicant-type-option="international" aria-pressed="false">
-                  <span class="palette-option-badge">International</span>
-                  <strong>International Registrar</strong>
-                  <p>Applies to registrars outside Kenya.</p>
-                </button>
-              </div>
-              <div class="palette-dialog-footer">
-                <button id="applicantTypeClose" type="button" class="ghost">Close</button>
-              </div>
-            </div>
-          </dialog>
-        </div>
-        <label>
-          Country of Incorporation
-          <input
-            id="countryOfIncorporation"
-            list="countrySuggestions"
-            maxlength="${COUNTRY_OF_INCORPORATION_MAX_LENGTH}"
-            autocomplete="country-name"
-            placeholder="Type to search for a country"
-          />
-          <datalist id="countrySuggestions"></datalist>
-          <span id="countryOfIncorporationHint" class="hint">Start typing to search for the country of incorporation.</span>
-          <span id="countrySearchFeedback" class="hint">Matching countries will appear as you type.</span>
-        </label>
-      </div>
-
-      <div class="activation-panel">
-        <div class="activation-copy">
-          <div id="activationIndicator" class="activation-badge" aria-hidden="true">1</div>
-          <div class="activation-copy-body">
-            <div class="section-kicker">Next Step</div>
-            <h2>Continue with Section A</h2>
-            <p>Your registrar type and country are used throughout the form and become fixed once the application starts.</p>
-          </div>
-        </div>
-        <div class="activation-actions">
-          <div id="activationHint" class="hint">Set the registrar type and country above, then continue below with Section A.</div>
-          <div class="profile-summary-grid">
-            <div class="profile-summary-card">
-              <span>Registrar Type</span>
-              <strong id="applicationProfileApplicantType">Local Registrar</strong>
-            </div>
-            <div class="profile-summary-card">
-              <span>Country</span>
-              <strong id="applicationProfileCountry">Kenya</strong>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="flash" id="flashBox">Continue below with Section A: General Information.</div>
+    <section id="portalStatusBanner" class="portal-status-banner" hidden aria-live="polite">
+      <div class="portal-status-banner-kicker">Application status</div>
+      <strong id="portalStatusTitle">Registrar applications are temporarily unavailable</strong>
+      <p id="portalStatusReason">Update in progress.</p>
+      <div id="portalStatusMeta" class="portal-status-meta"></div>
     </section>
 
-    <div id="applicationFlow" class="application-flow">
-      <section class="application-section" data-flow-section="SECTION_A_GENERAL_INFORMATION">
+    <section id="portalEntry" class="portal-entry">
+      <div class="portal-entry-hero">
+        <div class="portal-entry-kicker">KeNIC Registrar Accreditation</div>
+        <h2 id="portalEntryTitle">Welcome to registrar accreditation</h2>
+        <p id="portalEntryDescription">Choose the application profile that matches your registrar business.</p>
+      </div>
+
+        <div class="profile-setup-panel">
+          <div class="profile-setup-main">
+            <div class="field-block applicant-type-field">
+              <div class="field-label-row">
+                <span>Application Profile<span class="required-mark">*</span></span>
+              </div>
+              <select id="applicantType" class="visually-hidden-control" tabindex="-1" aria-hidden="true">
+                <option value="local">Local Registrar</option>
+                <option value="international">International Registrar</option>
+              </select>
+              <div class="inline-choice-group" role="radiogroup" aria-label="Registrar type">
+                <button type="button" class="inline-choice" data-applicant-type-option="local" aria-pressed="true">
+                  <span class="inline-choice-indicator" aria-hidden="true"></span>
+                  <span class="inline-choice-label">Local Registrar</span>
+                </button>
+                <button type="button" class="inline-choice" data-applicant-type-option="international" aria-pressed="false">
+                  <span class="inline-choice-indicator" aria-hidden="true"></span>
+                  <span class="inline-choice-label">International Registrar</span>
+                </button>
+              </div>
+              <span id="applicantTypeHint" class="hint">Kenya is used automatically for local applications.</span>
+            </div>
+
+            <label class="profile-country-field">
+              Country of Incorporation
+              <div class="country-search-shell">
+                <span class="country-search-icon" aria-hidden="true"></span>
+                <input
+                  id="countryOfIncorporation"
+                  maxlength="${COUNTRY_OF_INCORPORATION_MAX_LENGTH}"
+                  autocomplete="off"
+                  autocapitalize="words"
+                  spellcheck="false"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="countrySuggestionList"
+                  placeholder="Search for a country"
+                />
+              </div>
+              <div id="countrySuggestionList" class="country-suggestion-list" role="listbox" hidden></div>
+              <span id="countrySearchFeedback" class="hint" hidden></span>
+            </label>
+          </div>
+
+          <div class="profile-selection-bar">
+            <span class="profile-selection-kicker">Selected pathway</span>
+            <div class="profile-selection-summary" aria-live="polite">
+              <strong id="applicationProfileApplicantType">Local Registrar</strong>
+              <span class="profile-selection-separator" aria-hidden="true"></span>
+              <strong id="applicationProfileCountry">Kenya</strong>
+            </div>
+            <div class="profile-selection-meta">
+              <button id="portalReviewSetupButton" type="button" class="ghost portal-review-setup" hidden>Review setup</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="portal-entry-grid">
+        <article class="portal-entry-card">
+          <div class="portal-entry-card-head">
+            <span class="portal-entry-badge">What you'll provide</span>
+            <span class="portal-entry-meta">Application</span>
+          </div>
+          <div class="portal-entry-list">
+            <div class="portal-entry-item">
+              <span class="portal-entry-item-kicker">Identity</span>
+              <strong id="portalOverviewIdentityTitle">Kenyan applicant and company details</strong>
+              <p id="portalOverviewIdentityDescription">Provide the applicant identity, contact person, Kenyan company registration, and tax information.</p>
+            </div>
+            <div class="portal-entry-item">
+              <span class="portal-entry-item-kicker">Operations</span>
+              <strong>Business and service capability</strong>
+              <p>Describe your domain operations, support processes, billing systems, and security controls.</p>
+            </div>
+            <div class="portal-entry-item">
+              <span class="portal-entry-item-kicker">Technical</span>
+              <strong>Domain administration setup</strong>
+              <p>Capture name servers, billing contacts, and administrative contacts for the registrar workflow.</p>
+            </div>
+            <div class="portal-entry-item">
+              <span class="portal-entry-item-kicker">Review</span>
+              <strong>Legal declaration and documents</strong>
+              <p>Declaration, supporting documents, and final submission.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="portal-entry-card">
+          <div class="portal-entry-card-head">
+            <span class="portal-entry-badge is-secondary">Required documents</span>
+            <span id="portalChecklistMeta" class="portal-entry-meta">5 documents</span>
+          </div>
+          <div id="portalChecklistPreview" class="portal-entry-list"></div>
+        </article>
+      </div>
+
+      <div class="portal-entry-actions">
+        <button id="portalProceedButton" type="button" class="secondary">Continue</button>
+      </div>
+
+      <div class="flash" id="flashBox"></div>
+    </section>
+
+    <div id="portalMainExperience" class="portal-main-experience" hidden>
+      <section class="flow-header">
+        <div class="flow-header-copy">
+          <div id="flowCurrentStepLabel" class="section-kicker">Section A</div>
+          <h2 id="flowCurrentStepTitle">General Information</h2>
+          <p id="flowCurrentStepDescription">Applicant and contact details.</p>
+        </div>
+        <div class="flow-header-meta">
+          <div id="flowStepCounter" class="flow-step-counter">Step 1 of 8</div>
+          <div class="flow-progress-track" aria-hidden="true">
+            <span id="flowProgressValue" class="flow-progress-value"></span>
+          </div>
+        </div>
+        <div id="flowStepTabs" class="flow-step-tabs" aria-label="Application steps"></div>
+      </section>
+
+      <div id="applicationFlow" class="application-flow is-paged">
+      <section class="application-section is-current" data-flow-section="SECTION_A_GENERAL_INFORMATION">
         <div class="application-shell">
           <div class="section-rail">
             <div class="section-step">Section A</div>
             <h2>General Information</h2>
-            <p>Provide the required applicant and contact person information.</p>
+            <p>Applicant and contact details.</p>
             <div class="mini-pill pending section-status" data-section-status="SECTION_A_GENERAL_INFORMATION">Not started</div>
           </div>
           <div class="section-main">
@@ -178,7 +234,7 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section B</div>
             <h2>Business Information</h2>
-            <p>Provide the required business information.</p>
+            <p>Operations, support, billing, and security.</p>
             <div class="mini-pill pending section-status" data-section-status="SECTION_B_BUSINESS_INFORMATION">Not started</div>
           </div>
           <div class="section-main">
@@ -208,7 +264,7 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section C</div>
             <h2>Domain Administration</h2>
-            <p>Provide the required domain administration information.</p>
+            <p>Nameservers and key contacts.</p>
             <div class="mini-pill pending section-status" data-section-status="SECTION_C_DOMAIN_ADMINISTRATION">Not started</div>
           </div>
           <div class="section-main">
@@ -235,7 +291,7 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section D</div>
             <h2>Business Development</h2>
-            <p>Provide the required business development information.</p>
+            <p>Target market and growth plans.</p>
             <div class="mini-pill pending section-status" data-section-status="SECTION_D_BUSINESS_DEVELOPMENT">Not started</div>
           </div>
           <div class="section-main">
@@ -266,7 +322,7 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section E</div>
             <h2>Legal Structure</h2>
-            <p>Provide the required legal structure information.</p>
+            <p>Ownership and legal disclosures.</p>
             <div class="mini-pill pending section-status" data-section-status="SECTION_E_LEGAL_STRUCTURE">Not started</div>
           </div>
           <div class="section-main">
@@ -283,7 +339,7 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section F</div>
             <h2>Declaration</h2>
-            <p>Review the declaration below and provide the confirmation details required for submission.</p>
+            <p>Review and confirm the declaration.</p>
             <div class="mini-pill pending section-status" data-section-status="SECTION_F_DECLARATION">Not started</div>
           </div>
           <div class="section-main">
@@ -314,19 +370,11 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Section G</div>
             <h2>Supporting Documents</h2>
-            <p>Upload each required document in checklist order. Use PDF or image files for business documents, and use the camera only when you need to capture a fresh copy.</p>
+            <p>Required uploads.</p>
           </div>
           <div class="section-main">
-            <div class="info-box">
-              <div class="stack">
-                <strong>Document checklist</strong>
-                <div class="subtle">Business documents are best uploaded from files you already have. Camera capture remains available, and passport photo capture is prioritized when needed.</div>
-              </div>
-            </div>
-            <div id="documentUploadFeedback" class="submission-feedback info">Lock the application profile above, then prepare the checklist here before uploading documents.</div>
+            <div id="documentUploadFeedback" class="submission-feedback info">Save your application profile first to unlock document uploads.</div>
             <div id="documentRequirementsList" class="list"></div>
-            <input id="documentCameraInput" class="visually-hidden-control" type="file" accept="image/*" />
-            <input id="documentUploadInput" class="visually-hidden-control" type="file" accept="application/pdf,image/*" />
           </div>
         </div>
       </section>
@@ -336,12 +384,11 @@ export const renderPortalPage = () => {
           <div class="section-rail">
             <div class="section-step">Final step</div>
             <h2>Ready to submit</h2>
-            <p>Review your entries, confirm the declaration, and submit when you are ready.</p>
+            <p>Submit when ready.</p>
           </div>
           <div class="section-main">
             <div class="submission-box">
-              <div class="subtle">Review the completed form and submit when you are ready.</div>
-              <div id="submissionFeedback" class="submission-feedback" aria-live="polite">Complete the form below and submit when you are ready.</div>
+              <div id="submissionFeedback" class="submission-feedback" aria-live="polite">Submit when ready.</div>
               <div class="toolbar">
                 <button id="submitApplicationButton" type="button" disabled>Submit</button>
               </div>
@@ -349,6 +396,39 @@ export const renderPortalPage = () => {
           </div>
         </div>
       </section>
+      </div>
+    </div>
+
+    <div id="profileSwitchOverlay" class="profile-switch-overlay" aria-hidden="true" hidden>
+      <div
+        class="profile-switch-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profileSwitchTitle"
+        aria-describedby="profileSwitchDescription"
+      >
+        <div class="profile-switch-dialog-copy">
+          <div class="section-kicker">Change profile</div>
+          <h3 id="profileSwitchTitle">Start a fresh application?</h3>
+          <p id="profileSwitchDescription">Switching the profile now clears the current application details and uploaded documents so the new pathway can start cleanly.</p>
+        </div>
+        <div class="profile-switch-compare">
+          <div class="profile-switch-state">
+            <span>Current</span>
+            <strong id="profileSwitchCurrentValue">Local Registrar • Kenya</strong>
+          </div>
+          <span class="profile-switch-arrow" aria-hidden="true"></span>
+          <div class="profile-switch-state">
+            <span>New</span>
+            <strong id="profileSwitchNextValue">International Registrar • Brazil</strong>
+          </div>
+        </div>
+        <div class="profile-switch-note">You can keep the current application, or continue with the updated pathway.</div>
+        <div class="profile-switch-actions">
+          <button id="profileSwitchCancel" type="button" class="ghost">Keep current</button>
+          <button id="profileSwitchConfirm" type="button" class="secondary">Start fresh</button>
+        </div>
+      </div>
     </div>
   `;
 
@@ -358,9 +438,18 @@ export const renderPortalPage = () => {
     const pendingDraftStorageKey = draftStateKeyPrefix + "pending";
     const uiStateKey = stateKey + ".ui";
     const fieldMaxLengths = ${JSON.stringify(SECTION_FIELD_MAX_LENGTHS)};
+    const initialPortalOperationalStatus = ${serializeForScript(
+      options.portalStatus ?? {
+        portalKey: "applicant_portal",
+        status: "active",
+        reason: "",
+        updatedBy: "system",
+        updatedAt: "",
+      }
+    )};
     const UI_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
     const DOCUMENT_SECTION_CODE = "SECTION_G_SUPPORTING_DOCUMENTS";
-    const state = { applicationId: "", draftToken: "", resumeToken: "", resumeCode: "" };
+    const state = { applicationId: "" };
     let sessionRestoreSource = "none";
     let latestBundle = getEmptyBundle();
     let formsEnabled = false;
@@ -373,6 +462,13 @@ export const renderPortalPage = () => {
     let flowSectionSyncFrame = null;
     let flashToastTimer = null;
     let lastRememberedSectionCode = "";
+    let committedProfileState = { applicantType: "local", country: "Kenya" };
+    let profileSwitchRequest = null;
+    let visibleCountrySuggestions = [];
+    let activeCountrySuggestionIndex = -1;
+    let portalFlowUnlocked = false;
+    let portalStatusPollTimer = null;
+    let portalOperationalStatus = normalizePortalOperationalStatus(initialPortalOperationalStatus);
 
     const flashBox = document.getElementById("flashBox");
     const flashOverlay = document.getElementById("flashOverlay");
@@ -387,24 +483,43 @@ export const renderPortalPage = () => {
     const submissionFeedback = document.getElementById("submissionFeedback");
     const documentUploadFeedback = document.getElementById("documentUploadFeedback");
     const documentRequirementsList = document.getElementById("documentRequirementsList");
-    const documentCameraInput = document.getElementById("documentCameraInput");
-    const documentUploadInput = document.getElementById("documentUploadInput");
+    const portalEntry = document.getElementById("portalEntry");
+    const portalEntryTitle = document.getElementById("portalEntryTitle");
+    const portalEntryDescription = document.getElementById("portalEntryDescription");
+    const portalChecklistMeta = document.getElementById("portalChecklistMeta");
+    const portalChecklistPreview = document.getElementById("portalChecklistPreview");
+    const portalOverviewIdentityTitle = document.getElementById("portalOverviewIdentityTitle");
+    const portalOverviewIdentityDescription = document.getElementById("portalOverviewIdentityDescription");
+    const portalProceedButton = document.getElementById("portalProceedButton");
+    const portalReviewSetupButton = document.getElementById("portalReviewSetupButton");
+    const portalMainExperience = document.getElementById("portalMainExperience");
+    const portalStatusBanner = document.getElementById("portalStatusBanner");
+    const portalStatusTitle = document.getElementById("portalStatusTitle");
+    const portalStatusReason = document.getElementById("portalStatusReason");
+    const portalStatusMeta = document.getElementById("portalStatusMeta");
+    const profileSetupPanel = document.querySelector(".profile-setup-panel");
     const applicantTypeInput = document.getElementById("applicantType");
-    const applicantTypeTrigger = document.getElementById("applicantTypeTrigger");
-    const applicantTypeDisplay = document.getElementById("applicantTypeDisplay");
-    const applicantTypeSummary = document.getElementById("applicantTypeSummary");
     const applicantTypeHint = document.getElementById("applicantTypeHint");
-    const applicantTypeDialog = document.getElementById("applicantTypeDialog");
-    const applicantTypeClose = document.getElementById("applicantTypeClose");
     const applicantTypeOptionButtons = Array.from(
       document.querySelectorAll("[data-applicant-type-option]")
     );
     const countryOfIncorporationInput = document.getElementById("countryOfIncorporation");
-    const countrySuggestions = document.getElementById("countrySuggestions");
-    const countryOfIncorporationHint = document.getElementById("countryOfIncorporationHint");
+    const countrySuggestionList = document.getElementById("countrySuggestionList");
     const countrySearchFeedback = document.getElementById("countrySearchFeedback");
     const applicationProfileApplicantType = document.getElementById("applicationProfileApplicantType");
     const applicationProfileCountry = document.getElementById("applicationProfileCountry");
+    const profileSwitchOverlay = document.getElementById("profileSwitchOverlay");
+    const profileSwitchCurrentValue = document.getElementById("profileSwitchCurrentValue");
+    const profileSwitchNextValue = document.getElementById("profileSwitchNextValue");
+    const profileSwitchCancel = document.getElementById("profileSwitchCancel");
+    const profileSwitchConfirm = document.getElementById("profileSwitchConfirm");
+    const flowCurrentStepLabel = document.getElementById("flowCurrentStepLabel");
+    const flowCurrentStepTitle = document.getElementById("flowCurrentStepTitle");
+    const flowCurrentStepDescription = document.getElementById("flowCurrentStepDescription");
+    const flowStepCounter = document.getElementById("flowStepCounter");
+    const flowProgressValue = document.getElementById("flowProgressValue");
+    const flowStepTabs = document.getElementById("flowStepTabs");
+    const flowHeader = document.querySelector(".flow-header");
     const phoneFieldDecorators = [
       {
         input: document.querySelector('input[name="telephoneNumber"]'),
@@ -418,6 +533,22 @@ export const renderPortalPage = () => {
       },
     ];
     const flowSectionNodes = Array.from(document.querySelectorAll("[data-flow-section]"));
+    const flowSectionCodes = flowSectionNodes
+      .map((node) => node.getAttribute("data-flow-section"))
+      .filter((sectionCode) => typeof sectionCode === "string" && sectionCode);
+    const flowSectionMeta = Object.fromEntries(
+      flowSectionNodes.map((node) => {
+        const sectionCode = node.getAttribute("data-flow-section") || "";
+        return [
+          sectionCode,
+          {
+            step: String(node.querySelector(".section-step")?.textContent || "").trim(),
+            title: String(node.querySelector(".section-rail h2")?.textContent || "").trim(),
+            description: String(node.querySelector(".section-rail p")?.textContent || "").trim(),
+          },
+        ];
+      })
+    );
     const sectionStatusNodes = Object.fromEntries(
       Array.from(document.querySelectorAll("[data-section-status]")).map((node) => [
         node.getAttribute("data-section-status"),
@@ -425,11 +556,12 @@ export const renderPortalPage = () => {
       ])
     );
     const pendingDocumentUploads = new Set();
-    let activeDocumentInputConfig = null;
+    let activeFlowSectionCode = "";
     const IMAGE_UPLOAD_MAX_DIMENSION = 2200;
     const IMAGE_UPLOAD_QUALITY = 0.82;
     const SUBMISSION_RECEIVED_MESSAGE =
       "Application successfully received. Please await the next steps from KeNIC.";
+    const FINAL_REVIEW_CODE = "FINAL_REVIEW";
     const SECTION_META = {
       SECTION_A_GENERAL_INFORMATION: { label: "Section A: General Information" },
       SECTION_B_BUSINESS_INFORMATION: { label: "Section B: Business Information" },
@@ -437,6 +569,78 @@ export const renderPortalPage = () => {
       SECTION_D_BUSINESS_DEVELOPMENT: { label: "Section D: Business Development" },
       SECTION_E_LEGAL_STRUCTURE: { label: "Section E: Legal Structure" },
       SECTION_F_DECLARATION: { label: "Section F: Declaration" },
+    };
+    const FLOW_TAB_LABELS = {
+      SECTION_A_GENERAL_INFORMATION: "General Info",
+      SECTION_B_BUSINESS_INFORMATION: "Business",
+      SECTION_C_DOMAIN_ADMINISTRATION: "Domains",
+      SECTION_D_BUSINESS_DEVELOPMENT: "Growth",
+      SECTION_E_LEGAL_STRUCTURE: "Legal",
+      SECTION_F_DECLARATION: "Declaration",
+      SECTION_G_SUPPORTING_DOCUMENTS: "Documents",
+      FINAL_REVIEW: "Review",
+    };
+    const PORTAL_ENTRY_PREVIEW = {
+      local: {
+        selectionHint:
+          "You selected the Kenyan registrar pathway. This application is for registrars incorporated in Kenya.",
+        continueLabel: "Continue",
+        overviewIdentityTitle: "Kenyan applicant and company details",
+        overviewIdentityDescription:
+          "Provide the applicant identity, contact person, Kenyan company registration, and tax information.",
+        documents: [
+          {
+            title: "Certificate of Incorporation",
+            description: "Provide the Kenyan company formation document for the applying entity.",
+          },
+          {
+            title: "Latest CR12",
+            description: "Upload the latest company registry search or directorship and shareholding extract.",
+          },
+          {
+            title: "KRA PIN Certificate",
+            description: "Provide the applicant company's KRA PIN registration document.",
+          },
+          {
+            title: "Tax Compliance Certificate",
+            description: "Upload the current tax compliance certificate for the applicant company.",
+          },
+          {
+            title: "Passport Photo",
+            description: "Provide a passport-style image for the authorised representative.",
+          },
+        ],
+      },
+      international: {
+        selectionHint:
+          "You selected the international registrar pathway. This application is for registrars incorporated outside Kenya.",
+        continueLabel: "Continue",
+        overviewIdentityTitle: "Applicant and incorporation details",
+        overviewIdentityDescription:
+          "Provide the applicant identity, contact person, company registration, and tax information for your jurisdiction.",
+        documents: [
+          {
+            title: "Company formation document",
+            description: "Certificate of incorporation, registration, or the equivalent issued in your jurisdiction.",
+          },
+          {
+            title: "Registry ownership extract",
+            description: "Provide the registry search, good standing document, or equivalent directorship and shareholding disclosure.",
+          },
+          {
+            title: "Tax registration document",
+            description: "Upload the tax registration, TIN, VAT, or equivalent applicant tax record for your jurisdiction.",
+          },
+          {
+            title: "Tax compliance evidence",
+            description: "Provide tax clearance, good standing, or equivalent revenue authority evidence from your jurisdiction.",
+          },
+          {
+            title: "Passport photo",
+            description: "Provide a passport-style image for the authorised representative.",
+          },
+        ],
+      },
     };
 
     const COUNTRY_PROFILES = {
@@ -645,6 +849,89 @@ export const renderPortalPage = () => {
       };
     }
 
+    function getDefaultPortalOperationalStatus() {
+      return {
+        portalKey: "applicant_portal",
+        status: "active",
+        reason: "",
+        updatedBy: "system",
+        updatedAt: "",
+      };
+    }
+
+    function normalizePortalOperationalStatus(value) {
+      const safeValue = isRecord(value) ? value : {};
+      return {
+        portalKey: typeof safeValue.portalKey === "string" && safeValue.portalKey
+          ? safeValue.portalKey
+          : "applicant_portal",
+        status: safeValue.status === "inactive" ? "inactive" : "active",
+        reason: typeof safeValue.reason === "string" ? safeValue.reason.trim() : "",
+        updatedBy: typeof safeValue.updatedBy === "string" && safeValue.updatedBy.trim()
+          ? safeValue.updatedBy.trim()
+          : "system",
+        updatedAt: typeof safeValue.updatedAt === "string" ? safeValue.updatedAt : "",
+      };
+    }
+
+    function isPortalInactive() {
+      return portalOperationalStatus.status === "inactive";
+    }
+
+    function getPortalInactiveMessage(status = portalOperationalStatus) {
+      return status.reason || "Registrar applications are temporarily unavailable while updates are in progress.";
+    }
+
+    function syncPortalOperationalBanner() {
+      if (!portalStatusBanner) {
+        return;
+      }
+
+      if (!isPortalInactive()) {
+        portalStatusBanner.hidden = true;
+        return;
+      }
+
+      portalStatusBanner.hidden = false;
+
+      if (portalStatusTitle) {
+        portalStatusTitle.textContent = "Registrar applications are temporarily unavailable";
+      }
+
+      if (portalStatusReason) {
+        portalStatusReason.textContent = getPortalInactiveMessage();
+      }
+
+      if (portalStatusMeta) {
+        portalStatusMeta.textContent = "Please try again later.";
+      }
+    }
+
+    function syncPortalOperationalState() {
+      const inactive = isPortalInactive();
+
+      syncPortalOperationalBanner();
+
+      portalEntry?.classList.toggle("is-inactive", inactive);
+      portalMainExperience?.classList.toggle("is-inactive", inactive);
+
+      if (applicantTypeInput) {
+        applicantTypeInput.disabled = inactive;
+      }
+      if (countryOfIncorporationInput) {
+        countryOfIncorporationInput.disabled = inactive;
+      }
+      if (portalReviewSetupButton) {
+        portalReviewSetupButton.disabled = inactive;
+      }
+
+      syncApplicantTypeControls();
+      setFormsEnabled(formsEnabled);
+      syncPortalEntryPreview();
+      syncDocumentUploadFeedback(latestBundle);
+      syncSubmissionFeedback(latestBundle);
+    }
+
     function normalizeBundle(bundle) {
       const safeBundle = isRecord(bundle) ? bundle : {};
       const safeChecklist = isRecord(safeBundle.checklist) ? safeBundle.checklist : {};
@@ -771,21 +1058,534 @@ export const renderPortalPage = () => {
     }
 
     function getCurrentFlowSectionCode() {
-      const threshold = 160;
-      let currentSectionCode = "";
+      return activeFlowSectionCode || flowSectionCodes[0] || "";
+    }
 
-      flowSectionNodes.forEach((node) => {
-        const sectionCode = node.getAttribute("data-flow-section");
-        if (!sectionCode) {
-          return;
-        }
+    function getFlowSectionIndex(sectionCode) {
+      return flowSectionCodes.indexOf(sectionCode);
+    }
 
-        if (node.getBoundingClientRect().top <= threshold) {
-          currentSectionCode = sectionCode;
-        }
+    function getFlowSectionMeta(sectionCode) {
+      return flowSectionMeta[sectionCode] || {
+        step: "",
+        title: getSectionLabel(sectionCode),
+        description: "",
+      };
+    }
+
+    function getFlowSectionTabLabel(sectionCode) {
+      return FLOW_TAB_LABELS[sectionCode] || getFlowSectionMeta(sectionCode).title || sectionCode;
+    }
+
+    function getPortalPreviewProfileKey() {
+      return applicantTypeInput?.value === "international" ? "international" : "local";
+    }
+
+    function getPortalPreviewConfig() {
+      return PORTAL_ENTRY_PREVIEW[getPortalPreviewProfileKey()] || PORTAL_ENTRY_PREVIEW.local;
+    }
+
+    function getApplicantTypeSelectionHint(lockIdentity = Boolean(state.applicationId)) {
+      const preview = getPortalPreviewConfig();
+      const isLocal = applicantTypeInput?.value !== "international";
+
+      if (lockIdentity) {
+        return isLocal
+          ? "You selected the Kenyan registrar pathway. If you change it later, we will confirm before starting a fresh application."
+          : "You selected the international registrar pathway. If you change it later, we will confirm before starting a fresh application.";
+      }
+
+      if (isLocal) {
+        return preview.selectionHint + " Kenya will be used automatically.";
+      }
+
+      return preview.selectionHint + " Choose the country of incorporation to continue.";
+    }
+
+    function getRawCountrySelection() {
+      return String(countryOfIncorporationInput?.value || "").trim();
+    }
+
+    function getResolvedCountrySelection() {
+      return resolveCountryOption(getRawCountrySelection());
+    }
+
+    function isOnboardingProfileReady() {
+      if (applicantTypeInput?.value !== "international") {
+        return true;
+      }
+
+      const rawCountry = getRawCountrySelection();
+      if (!rawCountry || isBlockedInternationalCountry(rawCountry)) {
+        return false;
+      }
+
+      return Boolean(getResolvedCountrySelection());
+    }
+
+    function renderPortalChecklistPreview() {
+      if (!portalChecklistPreview) {
+        return;
+      }
+
+      const preview = getPortalPreviewConfig();
+      portalChecklistPreview.replaceChildren();
+
+      preview.documents.forEach((previewDocument) => {
+        const item = document.createElement("div");
+        item.className = "portal-entry-item";
+
+        const title = document.createElement("strong");
+        title.textContent = previewDocument.title;
+
+        const description = document.createElement("p");
+        description.textContent = previewDocument.description;
+
+        item.appendChild(title);
+        item.appendChild(description);
+        portalChecklistPreview.appendChild(item);
       });
 
-      return currentSectionCode || flowSectionNodes[0]?.getAttribute("data-flow-section") || "";
+      if (portalChecklistMeta) {
+        portalChecklistMeta.textContent = preview.documents.length + " documents";
+      }
+    }
+
+    function syncPortalEntryPreview() {
+      const preview = getPortalPreviewConfig();
+
+      if (portalOverviewIdentityTitle) {
+        portalOverviewIdentityTitle.textContent = preview.overviewIdentityTitle;
+      }
+      if (portalOverviewIdentityDescription) {
+        portalOverviewIdentityDescription.textContent = preview.overviewIdentityDescription;
+      }
+      if (portalProceedButton) {
+        portalProceedButton.textContent = portalFlowUnlocked
+          ? "Return to application"
+          : preview.continueLabel;
+        portalProceedButton.disabled = portalFlowUnlocked
+          ? false
+          : isPortalInactive() || !isOnboardingProfileReady();
+      }
+      if (portalReviewSetupButton) {
+        portalReviewSetupButton.hidden = !(
+          portalFlowUnlocked
+          && Boolean(portalEntry?.classList.contains("is-compact"))
+        );
+      }
+
+      renderPortalChecklistPreview();
+    }
+
+    function setPortalEntryCompact(compact = false) {
+      portalEntry?.classList.toggle("is-compact", compact);
+      syncPortalEntryPreview();
+    }
+
+    function setPortalFlowUnlocked(unlocked, options = {}) {
+      portalFlowUnlocked = Boolean(unlocked);
+
+      if (portalEntry) {
+        portalEntry.classList.toggle("has-entered-flow", portalFlowUnlocked);
+      }
+      if (portalMainExperience) {
+        portalMainExperience.hidden = !portalFlowUnlocked;
+      }
+
+      if (portalFlowUnlocked) {
+        setPortalEntryCompact(options.compact !== false);
+        return;
+      }
+
+      setPortalEntryCompact(false);
+    }
+
+    function focusProfileSetup() {
+      const firstTarget = applicantTypeInput?.value === "international"
+        ? (countryOfIncorporationInput || applicantTypeOptionButtons[0])
+        : (applicantTypeOptionButtons[0] || countryOfIncorporationInput);
+      if (!(firstTarget instanceof HTMLElement)) {
+        return;
+      }
+
+      try {
+        firstTarget.focus({ preventScroll: true });
+      } catch {
+        firstTarget.focus();
+      }
+    }
+
+    function scrollToProfileSetup(options = {}) {
+      portalEntry?.scrollIntoView({
+        behavior: options.smooth === false ? "auto" : "smooth",
+        block: "start",
+      });
+
+      if (options.focus === false) {
+        return;
+      }
+
+      window.setTimeout(() => {
+        focusProfileSetup();
+      }, 60);
+    }
+
+    function getFlowSectionStatusText(sectionCode) {
+      if (sectionStatusNodes[sectionCode]) {
+        return String(sectionStatusNodes[sectionCode].textContent || "").trim() || "Pending";
+      }
+
+      if (sectionCode === DOCUMENT_SECTION_CODE) {
+        const checklistDocuments = getChecklistDocuments(latestBundle);
+        if (!state.applicationId) {
+          return "Draft";
+        }
+        if (pendingDocumentUploads.size > 0) {
+          return "Uploading";
+        }
+        if (!checklistDocuments.length) {
+          return "Preparing";
+        }
+        if (checklistDocuments.some((document) => document.isRequired && !document.uploaded)) {
+          return "Pending";
+        }
+        return "Ready";
+      }
+
+      if (sectionCode === FINAL_REVIEW_CODE) {
+        const status = latestBundle?.application?.status || "";
+        if (status === "submitted" || status === "in_review") {
+          return "Submitted";
+        }
+        if (status === "approved") {
+          return "Approved";
+        }
+        if (status === "rejected") {
+          return "Closed";
+        }
+        return latestBundle?.checklist?.readyForSubmission ? "Ready" : "Pending";
+      }
+
+      return "Pending";
+    }
+
+    function getFlowSectionStatusKind(sectionCode) {
+      const statusText = getFlowSectionStatusText(sectionCode).toLowerCase();
+
+      if (
+        statusText.includes("complete")
+        || statusText.includes("ready")
+        || statusText.includes("submitted")
+        || statusText.includes("approved")
+      ) {
+        return "complete";
+      }
+
+      if (
+        statusText.includes("review")
+        || statusText.includes("closed")
+        || statusText.includes("error")
+      ) {
+        return "issue";
+      }
+
+      if (
+        statusText.includes("progress")
+        || statusText.includes("uploading")
+      ) {
+        return "active";
+      }
+
+      return "pending";
+    }
+
+    function getPreferredFlowSectionCode(bundle = latestBundle) {
+      const rememberedSectionCode = loadPortalUiState().activeSectionCode;
+      if (flowSectionCodes.includes(rememberedSectionCode)) {
+        return rememberedSectionCode;
+      }
+
+      const firstIncompleteSection = Array.isArray(bundle?.checklist?.sections)
+        ? bundle.checklist.sections.find((section) => !section?.isComplete)?.sectionCode || ""
+        : "";
+      if (flowSectionCodes.includes(firstIncompleteSection)) {
+        return firstIncompleteSection;
+      }
+
+      const hasPendingDocuments = getChecklistDocuments(bundle).some(
+        (document) => document.isRequired && !document.uploaded
+      );
+      if (hasPendingDocuments) {
+        return DOCUMENT_SECTION_CODE;
+      }
+
+      if (bundle?.checklist?.readyForSubmission) {
+        return FINAL_REVIEW_CODE;
+      }
+
+      return flowSectionCodes[0] || "";
+    }
+
+    function getPreviousFlowSectionCode(sectionCode) {
+      const index = getFlowSectionIndex(sectionCode);
+      return index > 0 ? flowSectionCodes[index - 1] : "";
+    }
+
+    function getNextFlowSectionCode(sectionCode) {
+      const index = getFlowSectionIndex(sectionCode);
+      return index >= 0 && index < flowSectionCodes.length - 1 ? flowSectionCodes[index + 1] : "";
+    }
+
+    function getNextFlowActionLabel(sectionCode) {
+      return getNextFlowSectionCode(sectionCode) ? "Next" : "";
+    }
+
+    function syncFlowNavigationState() {
+      const currentSectionCode = getCurrentFlowSectionCode();
+      if (!currentSectionCode) {
+        return;
+      }
+
+      const currentMeta = getFlowSectionMeta(currentSectionCode);
+      const currentIndex = Math.max(0, getFlowSectionIndex(currentSectionCode));
+      const totalSteps = flowSectionCodes.length || 1;
+      const progressPercent = ((currentIndex + 1) / totalSteps) * 100;
+
+      if (flowCurrentStepLabel) {
+        flowCurrentStepLabel.textContent = currentMeta.step || "Application flow";
+      }
+      if (flowCurrentStepTitle) {
+        flowCurrentStepTitle.textContent = currentMeta.title || getSectionLabel(currentSectionCode);
+      }
+      if (flowCurrentStepDescription) {
+        flowCurrentStepDescription.textContent = currentMeta.description || "";
+      }
+      if (flowStepCounter) {
+        flowStepCounter.textContent =
+          "Step " + (currentIndex + 1) + " of " + totalSteps + " • " + getFlowSectionStatusText(currentSectionCode);
+      }
+      if (flowProgressValue) {
+        flowProgressValue.style.width = progressPercent.toFixed(2) + "%";
+      }
+
+      if (flowStepTabs) {
+        flowStepTabs.replaceChildren();
+        flowSectionCodes.forEach((sectionCode) => {
+          const button = document.createElement("button");
+          const isActive = sectionCode === currentSectionCode;
+          const statusKind = getFlowSectionStatusKind(sectionCode);
+          const statusText = getFlowSectionStatusText(sectionCode);
+          button.type = "button";
+          button.className =
+            "flow-step-tab is-" + statusKind + (isActive ? " is-active" : "");
+          button.setAttribute("aria-pressed", isActive ? "true" : "false");
+          button.setAttribute(
+            "aria-label",
+            getFlowSectionTabLabel(sectionCode) + " • " + statusText
+          );
+
+          const indicator = document.createElement("span");
+          indicator.className = "flow-step-tab-indicator";
+          indicator.setAttribute("aria-hidden", "true");
+
+          const label = document.createElement("span");
+          label.className = "flow-step-tab-label";
+          label.textContent = getFlowSectionTabLabel(sectionCode);
+
+          button.appendChild(indicator);
+          button.appendChild(label);
+          button.addEventListener("click", () => {
+            void goToFlowSection(sectionCode, { focusHeading: true });
+          });
+          flowStepTabs.appendChild(button);
+        });
+      }
+
+      document.querySelectorAll("[data-flow-nav-for]").forEach((node) => {
+        const sectionCode = node.getAttribute("data-flow-nav-for") || "";
+        const previousButton = node.querySelector("[data-flow-prev]");
+        const nextButton = node.querySelector("[data-flow-next]");
+        const meta = node.querySelector("[data-flow-nav-meta]");
+        const sectionIndex = Math.max(0, getFlowSectionIndex(sectionCode));
+        const previousSectionCode = getPreviousFlowSectionCode(sectionCode);
+        const nextSectionCode = getNextFlowSectionCode(sectionCode);
+
+        node.hidden = sectionCode !== currentSectionCode;
+
+        if (previousButton instanceof HTMLButtonElement) {
+          previousButton.disabled = !previousSectionCode;
+          previousButton.hidden = !previousSectionCode;
+        }
+
+        if (nextButton instanceof HTMLButtonElement) {
+          nextButton.disabled = !nextSectionCode;
+          nextButton.hidden = !nextSectionCode;
+          nextButton.textContent = getNextFlowActionLabel(sectionCode) || "Stay here";
+        }
+
+        node.classList.toggle("has-only-next", !previousSectionCode && Boolean(nextSectionCode));
+        node.classList.toggle("has-only-prev", Boolean(previousSectionCode) && !nextSectionCode);
+        node.classList.toggle("has-both-actions", Boolean(previousSectionCode) && Boolean(nextSectionCode));
+
+        if (meta) {
+          meta.textContent = "Step " + (sectionIndex + 1) + " of " + totalSteps;
+        }
+      });
+    }
+
+    function revealFlowSection(sectionCode, options = {}) {
+      const targetSectionCode = flowSectionCodes.includes(sectionCode)
+        ? sectionCode
+        : flowSectionCodes[0] || "";
+      if (!targetSectionCode) {
+        return false;
+      }
+
+      activeFlowSectionCode = targetSectionCode;
+      flowSectionNodes.forEach((node) => {
+        const nodeSectionCode = node.getAttribute("data-flow-section") || "";
+        const isCurrent = nodeSectionCode === targetSectionCode;
+        node.classList.toggle("is-current", isCurrent);
+        node.hidden = !isCurrent;
+        node.setAttribute("aria-hidden", isCurrent ? "false" : "true");
+      });
+
+      syncFlowNavigationState();
+
+      if (options.remember !== false) {
+        const currentUiState = loadPortalUiState();
+        rememberPortalViewport({
+          sectionCode: targetSectionCode,
+          requirementCode: hasOwn(options, "requirementCode")
+            ? String(options.requirementCode || "")
+            : targetSectionCode === DOCUMENT_SECTION_CODE
+              ? currentUiState.activeRequirementCode || ""
+              : "",
+          actionSource: hasOwn(options, "actionSource")
+            ? String(options.actionSource || "")
+            : targetSectionCode === DOCUMENT_SECTION_CODE
+              ? currentUiState.activeActionSource || ""
+              : "",
+          awaitingDocumentReturn: false,
+        });
+      }
+
+      return true;
+    }
+
+    function openPortalMainExperience(options = {}) {
+      if (isPortalInactive() && !portalFlowUnlocked) {
+        setFlash(getPortalInactiveMessage(), "info");
+        portalStatusBanner?.scrollIntoView({
+          behavior: options.smooth === false ? "auto" : "smooth",
+          block: "start",
+        });
+        return false;
+      }
+
+      if (!portalFlowUnlocked) {
+        if (!isOnboardingProfileReady()) {
+          const rawCountry = getRawCountrySelection();
+          const message = !rawCountry
+            ? "Choose the country of incorporation to continue."
+            : isBlockedInternationalCountry(rawCountry)
+              ? "Kenya is only available for local registrar applications."
+              : "Choose a country from the suggested list to continue.";
+          setFlash(message, true);
+          scrollToProfileSetup();
+          return false;
+        }
+
+        setPortalFlowUnlocked(true);
+      } else {
+        setPortalEntryCompact(true);
+      }
+
+      const scrollTarget = flowHeader || portalMainExperience;
+      scrollTarget?.scrollIntoView({
+        behavior: options.smooth === false ? "auto" : "smooth",
+        block: "start",
+      });
+
+      if (options.focusFlow !== false) {
+        window.setTimeout(() => {
+          if (!(flowCurrentStepTitle instanceof HTMLElement)) {
+            return;
+          }
+
+          flowCurrentStepTitle.setAttribute("tabindex", "-1");
+          try {
+            flowCurrentStepTitle.focus({ preventScroll: true });
+          } catch {
+            flowCurrentStepTitle.focus();
+          }
+        }, 60);
+      }
+
+      return true;
+    }
+
+    function flowSectionRequiresLockedProfile(sectionCode) {
+      return sectionCode === DOCUMENT_SECTION_CODE || sectionCode === FINAL_REVIEW_CODE;
+    }
+
+    async function goToFlowSection(sectionCode, options = {}) {
+      const targetSectionCode = flowSectionCodes.includes(sectionCode)
+        ? sectionCode
+        : flowSectionCodes[0] || "";
+      if (!targetSectionCode) {
+        return false;
+      }
+
+      if (flowSectionRequiresLockedProfile(targetSectionCode) && !state.applicationId) {
+        try {
+          await ensureApplicationStarted();
+          syncSubmissionFeedback(latestBundle);
+        } catch (error) {
+          const friendlyMessage = getFriendlyErrorMessage(
+            error,
+            "We could not prepare the application yet."
+          );
+          setFlash(friendlyMessage, true);
+          if (
+            error?.message === "COUNTRY_OF_INCORPORATION_REQUIRED"
+            || error?.message === "COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL"
+          ) {
+            scrollToProfileSetup();
+          }
+          return false;
+        }
+      }
+
+      const revealed = revealFlowSection(targetSectionCode);
+      if (!revealed) {
+        return false;
+      }
+
+      const sectionNode = getFlowSectionNode(targetSectionCode);
+      if (sectionNode && options.scroll !== false) {
+        sectionNode.scrollIntoView({
+          behavior: options.smooth === false ? "auto" : "smooth",
+          block: "start",
+        });
+      }
+
+      if (options.focusHeading && sectionNode) {
+        const heading = sectionNode.querySelector(".section-rail h2");
+        if (heading instanceof HTMLElement) {
+          heading.setAttribute("tabindex", "-1");
+          setTimeout(() => {
+            try {
+              heading.focus({ preventScroll: true });
+            } catch {
+              heading.focus();
+            }
+          }, 180);
+        }
+      }
+
+      return true;
     }
 
     function rememberPortalViewport(options = {}) {
@@ -842,10 +1642,18 @@ export const renderPortalPage = () => {
         return false;
       }
 
-      sectionNode.scrollIntoView({
-        behavior: options.smooth ? "smooth" : "auto",
-        block: "start",
+      revealFlowSection(sectionCode, {
+        remember: false,
+        requirementCode,
+        actionSource,
       });
+
+      if (options.scroll !== false) {
+        sectionNode.scrollIntoView({
+          behavior: options.smooth ? "smooth" : "auto",
+          block: "start",
+        });
+      }
 
       let focusTarget = null;
       if (sectionCode === DOCUMENT_SECTION_CODE && requirementCode) {
@@ -938,9 +1746,6 @@ export const renderPortalPage = () => {
         }
 
         state.applicationId = typeof parsed.applicationId === "string" ? parsed.applicationId : "";
-        state.draftToken = typeof parsed.draftToken === "string" ? parsed.draftToken : "";
-        state.resumeToken = typeof parsed.resumeToken === "string" ? parsed.resumeToken : "";
-        state.resumeCode = typeof parsed.resumeCode === "string" ? parsed.resumeCode : "";
       } catch {}
     }
 
@@ -1033,12 +1838,14 @@ export const renderPortalPage = () => {
       if (
         !currentUrl.searchParams.has("applicationId")
         && !currentUrl.searchParams.has("token")
+        && !currentUrl.searchParams.has("code")
       ) {
         return;
       }
 
       currentUrl.searchParams.delete("applicationId");
       currentUrl.searchParams.delete("token");
+      currentUrl.searchParams.delete("code");
       const nextUrl = currentUrl.pathname + currentUrl.search + currentUrl.hash;
       window.history.replaceState({}, document.title, nextUrl);
     }
@@ -1046,27 +1853,60 @@ export const renderPortalPage = () => {
     function restoreSessionState() {
       const params = new URLSearchParams(window.location.search);
       const applicationId = String(params.get("applicationId") || "").trim();
-      const token = String(params.get("token") || "").trim();
       sessionRestoreSource = "none";
 
-      if (applicationId && token) {
+      if (applicationId) {
         state.applicationId = applicationId;
-        state.draftToken = "";
-        state.resumeToken = token;
-        state.resumeCode = "";
         sessionRestoreSource = "query";
         saveState();
         clearResumeQueryParams();
-        return "Saved application reopened.";
+        return "Application reopened.";
       }
 
       loadStoredState();
-      if (state.applicationId && (state.draftToken || state.resumeToken)) {
+      if (state.applicationId) {
         sessionRestoreSource = "storage";
-        return "Restored your in-progress application.";
+        return "Application reopened.";
       }
 
       return "";
+    }
+
+    async function refreshPortalOperationalStatus(options = {}) {
+      try {
+        const nextStatus = normalizePortalOperationalStatus(
+          await request("/onboard/v1/public/portal-status")
+        );
+        const previousStatus = portalOperationalStatus;
+        portalOperationalStatus = nextStatus;
+        syncPortalOperationalState();
+
+        if (options.silent) {
+          return nextStatus;
+        }
+
+        if (previousStatus.status !== nextStatus.status || previousStatus.reason !== nextStatus.reason) {
+          if (nextStatus.status === "inactive") {
+            setFlash(getPortalInactiveMessage(nextStatus), "info");
+          } else if (previousStatus.status === "inactive") {
+            setFlash("Registrar applications are available again.", "success");
+          }
+        }
+
+        return nextStatus;
+      } catch {
+        return portalOperationalStatus;
+      }
+    }
+
+    function startPortalStatusPolling() {
+      if (portalStatusPollTimer) {
+        clearInterval(portalStatusPollTimer);
+      }
+
+      portalStatusPollTimer = setInterval(() => {
+        void refreshPortalOperationalStatus();
+      }, 60000);
     }
 
     function normalizeCountryName(value) {
@@ -1133,15 +1973,147 @@ export const renderPortalPage = () => {
       return getSelectableCountryOptions().find((country) => normalizeCountryName(country) === aliasTarget) || "";
     }
 
-    function updateCountrySuggestions(query = "") {
-      if (!countrySuggestions) {
+    function closeCountrySuggestions() {
+      visibleCountrySuggestions = [];
+      activeCountrySuggestionIndex = -1;
+
+      if (countrySuggestionList) {
+        countrySuggestionList.hidden = true;
+        countrySuggestionList.replaceChildren();
+      }
+
+      countryOfIncorporationInput?.setAttribute("aria-expanded", "false");
+      countryOfIncorporationInput?.removeAttribute("aria-activedescendant");
+    }
+
+    function setActiveCountrySuggestion(index) {
+      if (!countrySuggestionList || !visibleCountrySuggestions.length || !countryOfIncorporationInput) {
         return;
       }
 
-      const options = getCountryMatches(query).slice(0, COUNTRY_MATCH_LIMIT);
-      countrySuggestions.innerHTML = options
-        .map((country) => '<option value="' + country + '"></option>')
-        .join("");
+      const nextIndex = Math.max(0, Math.min(index, visibleCountrySuggestions.length - 1));
+      activeCountrySuggestionIndex = nextIndex;
+      const optionButtons = Array.from(countrySuggestionList.querySelectorAll("[data-country-option]"));
+
+      optionButtons.forEach((button, buttonIndex) => {
+        const isActive = buttonIndex === nextIndex;
+        button.dataset.active = isActive ? "true" : "false";
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+        if (isActive) {
+          countryOfIncorporationInput.setAttribute("aria-activedescendant", button.id);
+        }
+      });
+    }
+
+    async function commitCountryProfileChange(countryValue) {
+      const nextProfile = getProfileState({ country: countryValue });
+      const currentProfile = getProfileState(committedProfileState);
+
+      if (getProfileFingerprint(nextProfile) === getProfileFingerprint(currentProfile)) {
+        scheduleLocalDraftSave();
+        return false;
+      }
+
+      return requestProfileSelectionChange(nextProfile);
+    }
+
+    async function commitCountrySelection(countryValue, options = {}) {
+      if (!countryOfIncorporationInput) {
+        return false;
+      }
+
+      countryOfIncorporationInput.value = countryValue;
+      countryOfIncorporationInput.dataset.autoLocal = "false";
+      closeCountrySuggestions();
+      updateCountrySearchFeedback();
+      updateApplicationProfileSummary();
+      refreshPhoneFieldDecorators();
+
+      const changed = await commitCountryProfileChange(countryValue);
+
+      if (options.focusInput !== false) {
+        try {
+          countryOfIncorporationInput.focus({ preventScroll: true });
+        } catch {
+          countryOfIncorporationInput.focus();
+        }
+      }
+
+      return changed;
+    }
+
+    function updateCountrySuggestions(query = "", settings = {}) {
+      if (!countrySuggestionList || !countryOfIncorporationInput) {
+        return;
+      }
+
+      if (applicantTypeInput?.value === "local") {
+        closeCountrySuggestions();
+        return;
+      }
+
+      const shouldOpen = settings.open === true
+        || (settings.open !== false && document.activeElement === countryOfIncorporationInput);
+      if (!shouldOpen) {
+        closeCountrySuggestions();
+        return;
+      }
+
+      const matches = getCountryMatches(query).slice(0, COUNTRY_MATCH_LIMIT);
+      visibleCountrySuggestions = matches;
+
+      if (!visibleCountrySuggestions.length) {
+        activeCountrySuggestionIndex = -1;
+        countrySuggestionList.hidden = false;
+        const emptyState = document.createElement("div");
+        emptyState.className = "country-suggestion-empty";
+        emptyState.textContent = "No matching country yet. Try the full country name.";
+        countrySuggestionList.replaceChildren(emptyState);
+        countryOfIncorporationInput.setAttribute("aria-expanded", "true");
+        countryOfIncorporationInput.removeAttribute("aria-activedescendant");
+        return;
+      }
+
+      countrySuggestionList.hidden = false;
+      countrySuggestionList.replaceChildren();
+      visibleCountrySuggestions.forEach((country, index) => {
+        const optionId = "countrySuggestionOption" + index;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.id = optionId;
+        button.className = "country-suggestion-option";
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", "false");
+        button.tabIndex = -1;
+        button.setAttribute("data-country-option", country);
+
+        const copy = document.createElement("span");
+        copy.className = "country-suggestion-copy";
+
+        const strong = document.createElement("strong");
+        strong.textContent = country;
+
+        copy.appendChild(strong);
+        button.appendChild(copy);
+        countrySuggestionList.appendChild(button);
+      });
+      countryOfIncorporationInput.setAttribute("aria-expanded", "true");
+
+      countrySuggestionList.querySelectorAll("[data-country-option]").forEach((button) => {
+        button.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+        });
+        button.addEventListener("click", async () => {
+          const country = button.getAttribute("data-country-option") || "";
+          await commitCountrySelection(country);
+        });
+      });
+
+      const normalizedValue = normalizeCountryName(
+        resolveCountryOption(countryOfIncorporationInput.value, true) || countryOfIncorporationInput.value
+      );
+      const activeIndex = visibleCountrySuggestions.findIndex((country) => normalizeCountryName(country) === normalizedValue);
+      setActiveCountrySuggestion(activeIndex >= 0 ? activeIndex : 0);
     }
 
     function updateCountrySearchFeedback() {
@@ -1150,42 +2122,49 @@ export const renderPortalPage = () => {
       }
 
       if (applicantTypeInput?.value === "local") {
-        countrySearchFeedback.textContent = "Kenya is used automatically for local applications.";
+        countrySearchFeedback.textContent = "";
+        countrySearchFeedback.hidden = true;
         return;
       }
 
       const rawValue = String(countryOfIncorporationInput?.value || "").trim();
       if (!rawValue) {
-        countrySearchFeedback.textContent = "Matching countries will appear as you type. Kenya is reserved for local applications.";
+        countrySearchFeedback.textContent = "";
+        countrySearchFeedback.hidden = true;
         return;
       }
 
       if (isBlockedInternationalCountry(rawValue)) {
         countrySearchFeedback.textContent = "Kenya is only available for local registrar applications.";
+        countrySearchFeedback.hidden = false;
         return;
       }
 
       const resolvedCountry = resolveCountryOption(rawValue);
       if (resolvedCountry) {
         countrySearchFeedback.textContent = "Selected country: " + resolvedCountry + ".";
+        countrySearchFeedback.hidden = false;
         return;
       }
 
       const matches = getCountryMatches(rawValue);
       if (matches.length === 0) {
-        countrySearchFeedback.textContent = "No close country match found yet. Continue typing the full country name.";
+        countrySearchFeedback.textContent = "No matching country yet. Try the full country name.";
+        countrySearchFeedback.hidden = false;
         return;
       }
 
       const preview = matches.slice(0, COUNTRY_PREVIEW_LIMIT).join(", ");
       countrySearchFeedback.textContent =
-        "Matching countries: "
+        "Suggested matches: "
         + preview
         + (matches.length > COUNTRY_PREVIEW_LIMIT ? ", ..." : ".");
+      countrySearchFeedback.hidden = false;
     }
 
     function normalizeCountrySelection() {
       if (!countryOfIncorporationInput || applicantTypeInput?.value === "local") {
+        closeCountrySuggestions();
         return "";
       }
 
@@ -1333,75 +2312,177 @@ export const renderPortalPage = () => {
       return value === "international" ? "International Registrar" : "Local Registrar";
     }
 
-    function getApplicantTypeSummary(value) {
-      return value === "international"
-        ? "Choose a country of incorporation other than Kenya and continue with international guidance."
-        : "Kenya is filled automatically and the local guidance is applied.";
+    function getProfileState(overrides = {}) {
+      const applicantType = hasOwn(overrides, "applicantType")
+        ? (overrides.applicantType === "international" ? "international" : "local")
+        : (applicantTypeInput?.value === "international" ? "international" : "local");
+      const rawCountry = hasOwn(overrides, "country")
+        ? String(overrides.country || "").trim()
+        : String(countryOfIncorporationInput?.value || "").trim();
+
+      return {
+        applicantType,
+        country: applicantType === "local"
+          ? "Kenya"
+          : String(resolveCountryOption(rawCountry, true) || rawCountry || "").trim(),
+      };
     }
 
-    function closeApplicantTypePalette() {
-      if (applicantTypeTrigger) {
-        applicantTypeTrigger.setAttribute("aria-expanded", "false");
+    function getProfileFingerprint(profile = getProfileState()) {
+      return profile.applicantType + "::" + normalizeCountryName(profile.country || "");
+    }
+
+    function formatProfileLabel(profile = getProfileState()) {
+      const normalizedProfile = getProfileState(profile);
+      return getApplicantTypeLabel(normalizedProfile.applicantType)
+        + " • "
+        + (normalizedProfile.applicantType === "local"
+          ? "Kenya"
+          : normalizedProfile.country || "Country not selected");
+    }
+
+    function rememberCommittedProfile(profile = getProfileState()) {
+      committedProfileState = getProfileState(profile);
+    }
+
+    function hasStartedApplicationWork() {
+      if (state.applicationId || pendingDocumentUploads.size > 0) {
+        return true;
       }
 
-      if (!applicantTypeDialog?.open) {
+      return Object.values(readAllSections()).some((section) => sectionHasValues(section));
+    }
+
+    function isProfileChangeBusy() {
+      return savingApplication || submittingApplication || pendingDocumentUploads.size > 0;
+    }
+
+    function applyProfileSelection(profile, options = {}) {
+      if (!applicantTypeInput || !countryOfIncorporationInput) {
         return;
       }
 
-      applicantTypeDialog.close();
+      const nextProfile = getProfileState(profile);
+      applicantTypeInput.value = nextProfile.applicantType;
+      countryOfIncorporationInput.value = nextProfile.applicantType === "local"
+        ? "Kenya"
+        : nextProfile.country || "";
+      countryOfIncorporationInput.dataset.autoLocal = nextProfile.applicantType === "local" ? "true" : "false";
+
+      syncCountryFieldState(Boolean(state.applicationId));
+
+      if (options.remember !== false) {
+        rememberCommittedProfile(nextProfile);
+      }
+
+      if (options.persist !== false) {
+        scheduleLocalDraftSave();
+      }
     }
 
-    function syncApplicantTypePalette() {
+    function closeProfileSwitchOverlay(confirmed) {
+      const activeRequest = profileSwitchRequest;
+      if (!activeRequest) {
+        return;
+      }
+
+      profileSwitchRequest = null;
+      profileSwitchOverlay?.classList.remove("is-active");
+      profileSwitchOverlay?.setAttribute("aria-hidden", "true");
+      if (profileSwitchOverlay) {
+        profileSwitchOverlay.hidden = true;
+      }
+
+      const restoreTarget = activeRequest.restoreFocus;
+      window.setTimeout(() => {
+        if (restoreTarget instanceof HTMLElement) {
+          try {
+            restoreTarget.focus({ preventScroll: true });
+          } catch {
+            restoreTarget.focus();
+          }
+        }
+      }, 0);
+
+      activeRequest.resolve(Boolean(confirmed));
+    }
+
+    function openProfileSwitchOverlay(nextProfile) {
+      if (!profileSwitchOverlay) {
+        return Promise.resolve(window.confirm("Switching profile will clear the current application details and documents. Continue?"));
+      }
+
+      if (profileSwitchCurrentValue) {
+        profileSwitchCurrentValue.textContent = formatProfileLabel(committedProfileState);
+      }
+      if (profileSwitchNextValue) {
+        profileSwitchNextValue.textContent = formatProfileLabel(nextProfile);
+      }
+
+      if (profileSwitchRequest) {
+        closeProfileSwitchOverlay(false);
+      }
+
+      profileSwitchOverlay.hidden = false;
+      profileSwitchOverlay.setAttribute("aria-hidden", "false");
+
+      return new Promise((resolve) => {
+        profileSwitchRequest = {
+          resolve,
+          restoreFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+        };
+        window.requestAnimationFrame(() => {
+          profileSwitchOverlay.classList.add("is-active");
+          try {
+            profileSwitchCancel?.focus({ preventScroll: true });
+          } catch {
+            profileSwitchCancel?.focus();
+          }
+        });
+      });
+    }
+
+    async function requestProfileSelectionChange(profile) {
+      const nextProfile = getProfileState(profile);
+      const currentProfile = getProfileState(committedProfileState);
+
+      if (getProfileFingerprint(nextProfile) === getProfileFingerprint(currentProfile)) {
+        applyProfileSelection(currentProfile, { persist: false, remember: false });
+        return false;
+      }
+
+      if (isProfileChangeBusy()) {
+        applyProfileSelection(currentProfile, { persist: false, remember: false });
+        setFlash("Please wait for the current save or upload to finish before changing the application profile.", true);
+        return false;
+      }
+
+      if (!hasStartedApplicationWork()) {
+        applyProfileSelection(nextProfile);
+        return true;
+      }
+
+      const confirmed = await openProfileSwitchOverlay(nextProfile);
+      if (!confirmed) {
+        applyProfileSelection(currentProfile, { persist: false, remember: false });
+        return false;
+      }
+
+      clearStoredApplicationState();
+      applyProfileSelection(nextProfile);
+      setFlash("Application pathway updated.");
+      return true;
+    }
+
+    function syncApplicantTypeControls() {
       const value = applicantTypeInput?.value === "international" ? "international" : "local";
-
-      if (applicantTypeDisplay) {
-        applicantTypeDisplay.textContent = getApplicantTypeLabel(value);
-      }
-
-      if (applicantTypeSummary) {
-        applicantTypeSummary.textContent = getApplicantTypeSummary(value);
-      }
-
-      if (applicantTypeTrigger) {
-        applicantTypeTrigger.dataset.value = value;
-        applicantTypeTrigger.disabled = Boolean(applicantTypeInput?.disabled);
-      }
 
       applicantTypeOptionButtons.forEach((button) => {
         const selected = button.getAttribute("data-applicant-type-option") === value;
         button.dataset.selected = selected ? "true" : "false";
         button.setAttribute("aria-pressed", selected ? "true" : "false");
+        button.disabled = Boolean(applicantTypeInput?.disabled);
       });
-    }
-
-    function openApplicantTypePalette() {
-      if (!applicantTypeDialog || !applicantTypeTrigger || applicantTypeTrigger.disabled) {
-        return;
-      }
-
-      applicantTypeTrigger.setAttribute("aria-expanded", "true");
-
-      if (typeof applicantTypeDialog.showModal === "function") {
-        applicantTypeDialog.showModal();
-        return;
-      }
-
-      applicantTypeDialog.setAttribute("open", "open");
-    }
-
-    function setApplicantTypeValue(value) {
-      if (!applicantTypeInput) {
-        return;
-      }
-
-      const nextValue = value === "international" ? "international" : "local";
-      if (applicantTypeInput.value !== nextValue) {
-        applicantTypeInput.value = nextValue;
-        applicantTypeInput.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-
-      syncApplicantTypePalette();
-      closeApplicantTypePalette();
     }
 
     function updateApplicationProfileSummary() {
@@ -1440,33 +2521,24 @@ export const renderPortalPage = () => {
         countryOfIncorporationInput.dataset.autoLocal = "false";
       }
 
-      applicantTypeInput.disabled = lockIdentity;
-      countryOfIncorporationInput.disabled = lockIdentity || isLocal;
-      if (applicantTypeTrigger) {
-        applicantTypeTrigger.disabled = lockIdentity;
-      }
+      applicantTypeInput.disabled = false;
+      countryOfIncorporationInput.disabled = isLocal;
+      profileSetupPanel?.classList.remove("is-locked");
 
       if (applicantTypeHint) {
-        applicantTypeHint.textContent = lockIdentity
-          ? "Applicant type is fixed after the application starts."
-          : isLocal
-            ? "Soft local profile selected. Kenya is used automatically."
-            : "International profile selected. Choose the country of incorporation.";
-      }
-
-      if (countryOfIncorporationHint) {
-        countryOfIncorporationHint.textContent = lockIdentity
-          ? "Country of incorporation is fixed for the current application."
-          : isLocal
-            ? "Local applications use Kenya."
-            : "Type to search and select the country of incorporation. Kenya is reserved for local applications.";
+        applicantTypeHint.textContent = getApplicantTypeSelectionHint(lockIdentity);
       }
 
       updateCountrySuggestions(countryOfIncorporationInput.value);
       updateCountrySearchFeedback();
       refreshPhoneFieldDecorators();
-      syncApplicantTypePalette();
+      syncApplicantTypeControls();
       updateApplicationProfileSummary();
+      syncPortalEntryPreview();
+
+      if (isLocal) {
+        closeCountrySuggestions();
+      }
     }
 
     function normalizePhoneFieldsForCountry() {
@@ -1497,6 +2569,7 @@ export const renderPortalPage = () => {
 
       submissionFeedback.textContent = message;
       submissionFeedback.className = "submission-feedback " + tone;
+      syncFlowNavigationState();
     }
 
     function syncSubmissionFeedback(bundle) {
@@ -1504,6 +2577,11 @@ export const renderPortalPage = () => {
       const missingRequiredDocuments = getChecklistDocuments(bundle).filter((document) =>
         document.isRequired && !document.uploaded
       );
+
+      if (isPortalInactive()) {
+        setSubmissionFeedback(getPortalInactiveMessage(), "info");
+        return;
+      }
 
       if (status === "submitted" || status === "in_review") {
         setSubmissionFeedback(SUBMISSION_RECEIVED_MESSAGE, "success");
@@ -1530,12 +2608,16 @@ export const renderPortalPage = () => {
         return;
       }
 
-      setSubmissionFeedback("Complete the form below and submit when you are ready.", "info");
+      setSubmissionFeedback("Submit when ready.", "info");
     }
 
     function updateActionButtons() {
       if (submitApplicationButton) {
-        submitApplicationButton.disabled = !formsEnabled || savingApplication || submittingApplication;
+        submitApplicationButton.disabled =
+          !formsEnabled
+          || isPortalInactive()
+          || savingApplication
+          || submittingApplication;
         submitApplicationButton.textContent = submittingApplication
           ? "Submitting..."
           : getSubmitButtonIdleLabel();
@@ -1563,23 +2645,24 @@ export const renderPortalPage = () => {
 
     function setFormsEnabled(enabled) {
       formsEnabled = enabled;
+      const allowEdits = enabled && !isPortalInactive();
       document.querySelectorAll("[data-section] input, [data-section] textarea, [data-section] select").forEach((field) => {
-        field.disabled = !enabled;
+        field.disabled = !allowEdits;
       });
       updateActionButtons();
       renderDocumentRequirements(latestBundle);
     }
 
     function setActivationState(nextState = "idle") {
-      activationIndicator?.classList.remove("is-active", "is-busy");
+      activationIndicator?.classList.remove("is-active", "is-busy", "is-readonly");
 
       if (nextState === "activating") {
         activationIndicator?.classList.add("is-busy");
         if (activationIndicator) {
-          activationIndicator.textContent = "…";
+          activationIndicator.textContent = "Preparing";
         }
         if (activationHint) {
-          activationHint.textContent = "Preparing the application with the selected profile...";
+          activationHint.textContent = "Setting up the application.";
         }
         return;
       }
@@ -1587,30 +2670,30 @@ export const renderPortalPage = () => {
       if (nextState === "active") {
         activationIndicator?.classList.add("is-active");
         if (activationIndicator) {
-          activationIndicator.textContent = "2";
+          activationIndicator.textContent = "Active";
         }
         if (activationHint) {
-          activationHint.textContent = "Profile locked. Continue filling Sections A to F below.";
+          activationHint.textContent = "Application ready.";
         }
         return;
       }
 
       if (nextState === "readonly") {
-        activationIndicator?.classList.add("is-active");
+        activationIndicator?.classList.add("is-active", "is-readonly");
         if (activationIndicator) {
-          activationIndicator.textContent = "3";
+          activationIndicator.textContent = "Submitted";
         }
         if (activationHint) {
-          activationHint.textContent = "This submitted application is read-only in this view.";
+          activationHint.textContent = "This submitted application can no longer be edited here.";
         }
         return;
       }
 
       if (activationIndicator) {
-        activationIndicator.textContent = "1";
+        activationIndicator.textContent = "Ready";
       }
       if (activationHint) {
-        activationHint.textContent = "Set the registrar type and country above, then continue below with Section A.";
+        activationHint.textContent = "Application ready.";
       }
     }
 
@@ -1639,7 +2722,6 @@ export const renderPortalPage = () => {
       resetSectionStatuses();
       latestBundle = getEmptyBundle();
       pendingDocumentUploads.clear();
-      activeDocumentInputConfig = null;
       if (viewportRestoreTimer) {
         clearTimeout(viewportRestoreTimer);
       }
@@ -1647,6 +2729,7 @@ export const renderPortalPage = () => {
       renderDocumentRequirements(latestBundle);
       syncDocumentUploadFeedback(latestBundle);
       syncCountryFieldState(false);
+      revealFlowSection(flowSectionCodes[0] || "", { remember: false });
     }
 
     function resetLockedPortal() {
@@ -1656,8 +2739,11 @@ export const renderPortalPage = () => {
       setSubmittingState(false);
       setActivationState("idle");
       setFlowVisualState("active");
+      setPortalFlowUnlocked(false);
       syncCountryFieldState(false);
       syncSubmissionFeedback(getEmptyBundle());
+      syncPortalEntryPreview();
+      rememberCommittedProfile();
     }
 
     function clearStoredApplicationState() {
@@ -1668,14 +2754,16 @@ export const renderPortalPage = () => {
       clearLocalDraft("");
 
       state.applicationId = "";
-      state.draftToken = "";
-      state.resumeToken = "";
-      state.resumeCode = "";
       sessionRestoreSource = "none";
 
       try {
         sessionStorage.removeItem(stateKey);
       } catch {}
+
+      void fetch("/onboard/v1/public/session/clear", {
+        method: "POST",
+        credentials: "same-origin",
+      }).catch(() => undefined);
 
       clearPortalUiState();
       clearResumeQueryParams();
@@ -1687,6 +2775,7 @@ export const renderPortalPage = () => {
       if (!node) return;
       node.className = "mini-pill section-status " + tone;
       node.textContent = label;
+      syncFlowNavigationState();
     }
 
     function getSectionLabel(sectionCode) {
@@ -1700,6 +2789,57 @@ export const renderPortalPage = () => {
     function getSectionPanel(sectionCode) {
       const form = getSectionForm(sectionCode);
       return form ? form.closest(".application-section") : null;
+    }
+
+    function buildSectionNavigation() {
+      flowSectionNodes.forEach((sectionNode) => {
+        const sectionCode = sectionNode.getAttribute("data-flow-section") || "";
+        const sectionMain = sectionNode.querySelector(".section-main");
+        if (!sectionCode || !sectionMain || sectionMain.querySelector("[data-flow-nav-for]")) {
+          return;
+        }
+
+        const navigation = document.createElement("div");
+        navigation.className = "section-navigation";
+        navigation.setAttribute("data-flow-nav-for", sectionCode);
+
+        const previousButton = document.createElement("button");
+        previousButton.type = "button";
+        previousButton.className = "ghost";
+        previousButton.setAttribute("data-flow-prev", sectionCode);
+        previousButton.textContent = "Previous";
+        previousButton.addEventListener("click", () => {
+          const previousSectionCode = getPreviousFlowSectionCode(sectionCode);
+          if (!previousSectionCode) {
+            return;
+          }
+          void goToFlowSection(previousSectionCode, { focusHeading: true });
+        });
+
+        const meta = document.createElement("div");
+        meta.className = "section-navigation-meta";
+        meta.setAttribute("data-flow-nav-meta", sectionCode);
+
+        const nextButton = document.createElement("button");
+        nextButton.type = "button";
+        nextButton.className = "secondary";
+        nextButton.setAttribute("data-flow-next", sectionCode);
+        nextButton.textContent = getNextFlowActionLabel(sectionCode) || "Stay here";
+        nextButton.addEventListener("click", () => {
+          const nextSectionCode = getNextFlowSectionCode(sectionCode);
+          if (!nextSectionCode) {
+            return;
+          }
+          void goToFlowSection(nextSectionCode, { focusHeading: true });
+        });
+
+        navigation.appendChild(previousButton);
+        navigation.appendChild(meta);
+        navigation.appendChild(nextButton);
+        sectionMain.appendChild(navigation);
+      });
+
+      syncFlowNavigationState();
     }
 
     function clearInvalidFieldHighlights() {
@@ -1803,6 +2943,7 @@ export const renderPortalPage = () => {
       });
 
       if (panel) {
+        revealFlowSection(issue.sectionCode);
         panel.classList.add("is-targeted");
         panel.scrollIntoView({ behavior: "smooth", block: "start" });
         rememberPortalViewport({ sectionCode: issue.sectionCode });
@@ -1870,7 +3011,7 @@ export const renderPortalPage = () => {
         }
 
         if (sectionHasValues(liveSectionData[section.sectionCode])) {
-          setSectionStatus(section.sectionCode, "pending", "In progress");
+          setSectionStatus(section.sectionCode, "loading", "In progress");
           return;
         }
 
@@ -1976,6 +3117,11 @@ export const renderPortalPage = () => {
 
     function getFriendlyErrorMessage(error, fallback) {
       const message = error && error.message ? String(error.message) : "";
+      if (message === "PORTAL_INACTIVE") {
+        const reason = typeof error?.details?.reason === "string" ? error.details.reason.trim() : "";
+        return reason || "Registrar applications are temporarily unavailable while updates are in progress.";
+      }
+
       const known = {
         APPLICATION_FORM_INVALID:
           "Please review the highlighted sections and try again.",
@@ -1986,7 +3132,7 @@ export const renderPortalPage = () => {
         EMPTY_FILE:
           "The selected document is empty. Choose another file and try again.",
         FILE_TOO_LARGE:
-          "The selected document is too large. Use a smaller file or capture a compressed image.",
+          "The selected document is too large. Choose a smaller file and try again.",
         INVALID_FILE_ENCODING:
           "We could not read the selected document. Choose it again and try once more.",
         FAILED_TO_READ_FILE:
@@ -2010,9 +3156,9 @@ export const renderPortalPage = () => {
         APPLICATION_ALREADY_EXISTS_FOR_COMPANY:
           "An application already exists for this company PIN or registration number. Use the earlier application or contact support.",
         DRAFT_OR_RESUME_TOKEN_REQUIRED:
-          "Please start a new application or reopen your saved application first.",
+          "Please start a new application or reopen the application first.",
         INVALID_OR_EXPIRED_DRAFT_TOKEN:
-          "Your saved application session has expired. Start a new application to continue.",
+          "This application session has expired. Start a new application to continue.",
       };
 
       if (message && known[message]) {
@@ -2024,735 +3170,7 @@ export const renderPortalPage = () => {
       return fallback;
     }
 
-    function setDocumentUploadFeedback(message, tone = "info") {
-      if (!documentUploadFeedback) {
-        return;
-      }
-
-      documentUploadFeedback.textContent = message;
-      documentUploadFeedback.className = "submission-feedback " + tone;
-    }
-
-    function getChecklistDocuments(bundle = latestBundle) {
-      const documents = Array.isArray(bundle?.checklist?.documents)
-        ? bundle.checklist.documents.slice()
-        : [];
-
-      return documents.sort((left, right) => {
-        const leftOrder = Number(left?.displayOrder ?? 9999);
-        const rightOrder = Number(right?.displayOrder ?? 9999);
-        if (leftOrder !== rightOrder) {
-          return leftOrder - rightOrder;
-        }
-
-        return String(left?.requirementCode || "").localeCompare(String(right?.requirementCode || ""));
-      });
-    }
-
-    function getUploadedDocumentMap(bundle = latestBundle) {
-      const map = new Map();
-      const documents = Array.isArray(bundle?.documents) ? bundle.documents : [];
-      documents.forEach((document) => {
-        if (document && typeof document.requirementCode === "string") {
-          map.set(document.requirementCode, document);
-        }
-      });
-      return map;
-    }
-
-    function getRequirementByCode(requirementCode, bundle = latestBundle) {
-      return getChecklistDocuments(bundle).find((document) => document.requirementCode === requirementCode) || null;
-    }
-
-    function formatFileSize(sizeBytes) {
-      const bytes = Number(sizeBytes);
-      if (!Number.isFinite(bytes) || bytes <= 0) {
-        return "";
-      }
-
-      if (bytes < 1024) {
-        return bytes + " B";
-      }
-
-      if (bytes < 1024 * 1024) {
-        return (bytes / 1024).toFixed(1) + " KB";
-      }
-
-      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-    }
-
-    function requirementAllowsImages(requirement) {
-      return Array.isArray(requirement?.allowedMimeTypes)
-        && requirement.allowedMimeTypes.some((mimeType) => String(mimeType).startsWith("image/"));
-    }
-
-    function requirementAllowsPdf(requirement) {
-      return Array.isArray(requirement?.allowedMimeTypes)
-        && requirement.allowedMimeTypes.includes("application/pdf");
-    }
-
-    function buildFileAcceptAttribute(requirement, source = "upload") {
-      if (source === "camera") {
-        return requirementAllowsImages(requirement) ? "image/*" : "";
-      }
-
-      if (source === "pdf") {
-        return requirementAllowsPdf(requirement) ? "application/pdf" : "";
-      }
-
-      if (source === "image") {
-        return requirementAllowsImages(requirement) ? "image/*" : "";
-      }
-
-      const acceptedTypes = [];
-      if (requirementAllowsPdf(requirement)) {
-        acceptedTypes.push("application/pdf");
-      }
-      if (requirementAllowsImages(requirement)) {
-        acceptedTypes.push("image/*");
-      }
-
-      return acceptedTypes.join(",") || "*/*";
-    }
-
-    function getCameraCaptureMode(requirementCode) {
-      return requirementCode === "PASSPORT_PHOTO" ? "user" : "environment";
-    }
-
-    function prefersCameraPrimary(requirement) {
-      return requirement?.requirementCode === "PASSPORT_PHOTO";
-    }
-
-    function getDocumentPickerGuidance(requirement) {
-      const cameraPrimary = prefersCameraPrimary(requirement);
-      const allowsPdf = requirementAllowsPdf(requirement);
-      const allowsImages = requirementAllowsImages(requirement);
-
-      if (cameraPrimary) {
-        return "Best source: capture a clear passport-style photo, or upload an existing image file.";
-      }
-
-      if (allowsPdf && allowsImages) {
-        return "Best source: upload a PDF from Files, Downloads, Drive, or email. Images are also accepted when needed.";
-      }
-
-      if (allowsPdf) {
-        return "Best source: upload a PDF document from Files, Downloads, Drive, or email.";
-      }
-
-      if (allowsImages) {
-        return "Use a clear image file or capture a fresh copy if needed.";
-      }
-
-      return "Choose the clearest document source available.";
-    }
-
-    function getDownloadToken() {
-      return state.resumeToken || state.draftToken || "";
-    }
-
-    function buildDocumentDownloadUrl(documentId) {
-      if (!state.applicationId || !documentId) {
-        return "";
-      }
-
-      const token = getDownloadToken();
-      const query = token ? "?token=" + encodeURIComponent(token) : "";
-      return "/onboard/v1/public/applications/" + state.applicationId + "/documents/" + documentId + "/download" + query;
-    }
-
-    function replaceFilenameExtension(filename, nextExtension) {
-      const normalizedFilename = String(filename || "document").trim() || "document";
-      const stem = normalizedFilename.replace(/\\.[^.]+$/, "") || "document";
-      return stem + "." + nextExtension;
-    }
-
-    function loadImageFromFile(file) {
-      return new Promise((resolve, reject) => {
-        const objectUrl = URL.createObjectURL(file);
-        const image = new Image();
-        image.onload = () => {
-          URL.revokeObjectURL(objectUrl);
-          resolve(image);
-        };
-        image.onerror = () => {
-          URL.revokeObjectURL(objectUrl);
-          reject(new Error("Failed to load image."));
-        };
-        image.src = objectUrl;
-      });
-    }
-
-    async function normalizeImageFile(file) {
-      if (!file || !String(file.type || "").startsWith("image/")) {
-        return file;
-      }
-
-      const image = await loadImageFromFile(file);
-      const width = Number(image.naturalWidth || image.width || 0);
-      const height = Number(image.naturalHeight || image.height || 0);
-      const longestSide = Math.max(width, height);
-
-      if (!longestSide) {
-        return file;
-      }
-
-      const scale = longestSide > IMAGE_UPLOAD_MAX_DIMENSION
-        ? IMAGE_UPLOAD_MAX_DIMENSION / longestSide
-        : 1;
-      const targetWidth = Math.max(1, Math.round(width * scale));
-      const targetHeight = Math.max(1, Math.round(height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return file;
-      }
-
-      context.drawImage(image, 0, 0, targetWidth, targetHeight);
-
-      const blob = await new Promise((resolve) => {
-        canvas.toBlob((value) => resolve(value), "image/jpeg", IMAGE_UPLOAD_QUALITY);
-      });
-
-      if (!blob) {
-        return file;
-      }
-
-      if (blob.size >= file.size && scale === 1 && file.type === "image/jpeg") {
-        return file;
-      }
-
-      return new File(
-        [blob],
-        replaceFilenameExtension(file.name, "jpg"),
-        { type: "image/jpeg", lastModified: Date.now() }
-      );
-    }
-
-    async function prepareDocumentFileForUpload(file) {
-      if (!file) {
-        throw new Error("FILE_REQUIRED");
-      }
-
-      if (String(file.type || "").startsWith("image/")) {
-        return normalizeImageFile(file);
-      }
-
-      return file;
-    }
-
-    function getDocumentStatusTone(requirementCode, uploadedDocument) {
-      if (pendingDocumentUploads.has(requirementCode)) {
-        return "loading";
-      }
-
-      if (uploadedDocument) {
-        return "ready";
-      }
-
-      return "pending";
-    }
-
-    function getDocumentStatusLabel(requirementCode, uploadedDocument) {
-      if (pendingDocumentUploads.has(requirementCode)) {
-        return "Uploading";
-      }
-
-      if (uploadedDocument) {
-        return "Received";
-      }
-
-      return "Required";
-    }
-
-    function buildDocumentIssue(requirementCode) {
-      const requirement = getRequirementByCode(requirementCode);
-      return {
-        requirementCode,
-        message: "Please upload " + (requirement?.label || requirementCode) + " before continuing.",
-      };
-    }
-
-    function getBlockingDocumentIssueFromDetails(documentDetails) {
-      if (!Array.isArray(documentDetails) || documentDetails.length === 0) {
-        return null;
-      }
-
-      const firstRequirementCode = typeof documentDetails[0] === "string"
-        ? documentDetails[0]
-        : "";
-      return firstRequirementCode ? buildDocumentIssue(firstRequirementCode) : null;
-    }
-
-    function guideUserToDocumentIssue(issue) {
-      if (!issue?.requirementCode) {
-        return false;
-      }
-
-      const sectionPanel = documentRequirementsList?.closest(".application-section") || null;
-      const documentCard = document.querySelector(
-        '[data-document-requirement="' + issue.requirementCode + '"]'
-      );
-
-      setFlash(issue.message, "error");
-      setDocumentUploadFeedback(issue.message, "error");
-
-      document.querySelectorAll(".application-section.is-targeted").forEach((node) => {
-        node.classList.remove("is-targeted");
-      });
-
-      if (sectionPanel) {
-        sectionPanel.classList.add("is-targeted");
-        sectionPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-        rememberPortalViewport({
-          sectionCode: DOCUMENT_SECTION_CODE,
-          requirementCode: issue.requirementCode,
-        });
-      }
-
-      if (sectionHighlightTimer) {
-        clearTimeout(sectionHighlightTimer);
-      }
-
-      sectionHighlightTimer = setTimeout(() => {
-        sectionPanel?.classList.remove("is-targeted");
-      }, 2600);
-
-      const focusTarget = documentCard?.querySelector("button:not([disabled]), a.button") || null;
-      if (focusTarget && typeof focusTarget.focus === "function") {
-        setTimeout(() => {
-          try {
-            focusTarget.focus({ preventScroll: true });
-          } catch {
-            focusTarget.focus();
-          }
-        }, 260);
-      }
-
-      return true;
-    }
-
-    function syncDocumentUploadFeedback(bundle = latestBundle) {
-      const checklistDocuments = getChecklistDocuments(bundle);
-      const applicationStatus = bundle?.application?.status || "";
-      const isReadOnly = ["submitted", "in_review", "approved", "rejected"].includes(applicationStatus);
-
-      if (!state.applicationId) {
-        setDocumentUploadFeedback(
-          "Create the application profile first, then prepare the document checklist here before uploading.",
-          "info"
-        );
-        return;
-      }
-
-      if (!checklistDocuments.length) {
-        setDocumentUploadFeedback("Document checklist is loading for this application.", "info");
-        return;
-      }
-
-      if (isReadOnly) {
-        setDocumentUploadFeedback("This application is read-only. Documents can no longer be changed here.", "info");
-        return;
-      }
-
-      const missingRequiredDocuments = checklistDocuments.filter((document) =>
-        document.isRequired && !document.uploaded
-      );
-
-      if (missingRequiredDocuments.length > 0) {
-        setDocumentUploadFeedback(
-          "Upload all required documents before final submission.",
-          "info"
-        );
-        return;
-      }
-
-      setDocumentUploadFeedback(
-        "All required documents have been received. You can continue reviewing the form before submission.",
-        "success"
-      );
-    }
-
-    function renderDocumentRequirements(bundle = latestBundle) {
-      if (!documentRequirementsList) {
-        return;
-      }
-
-      const checklistDocuments = getChecklistDocuments(bundle);
-      const uploadedDocumentMap = getUploadedDocumentMap(bundle);
-      const isReadOnly = ["submitted", "in_review", "approved", "rejected"].includes(
-        bundle?.application?.status || ""
-      );
-
-      documentRequirementsList.innerHTML = "";
-
-      if (!checklistDocuments.length) {
-        const node = document.createElement("div");
-        node.className = "list-item stack";
-        node.innerHTML =
-          "<strong>Prepare the document checklist</strong>" +
-          "<div class='subtle'>The checklist is created once the applicant profile is locked for this application.</div>";
-
-        if (!state.applicationId) {
-          const toolbar = document.createElement("div");
-          toolbar.className = "toolbar";
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "secondary";
-          button.textContent = "Prepare checklist";
-          button.addEventListener("click", async () => {
-            try {
-              await ensureApplicationStarted();
-              renderDocumentRequirements(latestBundle);
-              syncDocumentUploadFeedback(latestBundle);
-              setFlash("Application profile prepared. Continue with the required documents.", "success");
-            } catch (error) {
-              setFlash(
-                getFriendlyErrorMessage(
-                  error,
-                  "We could not prepare the document checklist. Try again."
-                ),
-                true
-              );
-            }
-          });
-          toolbar.appendChild(button);
-          node.appendChild(toolbar);
-        }
-
-        documentRequirementsList.appendChild(node);
-        return;
-      }
-
-      checklistDocuments.forEach((requirement, index) => {
-        const uploadedDocument = uploadedDocumentMap.get(requirement.requirementCode) || null;
-        const cameraPrimary = prefersCameraPrimary(requirement);
-        const node = document.createElement("div");
-        node.className = "list-item stack doc-card";
-        node.setAttribute("data-document-requirement", requirement.requirementCode);
-
-        const header = document.createElement("div");
-        header.className = "doc-header";
-
-        const meta = document.createElement("div");
-        meta.className = "doc-meta";
-        meta.innerHTML =
-          "<div class='doc-index'>Requirement " + (index + 1) + "</div>" +
-          "<strong>" + requirement.label + "</strong>" +
-          (
-            requirement.equivalentLabel
-              ? "<div class='hint'>" + requirement.equivalentLabel + "</div>"
-              : ""
-          );
-
-        const badge = document.createElement("div");
-        badge.className = "mini-pill " + getDocumentStatusTone(requirement.requirementCode, uploadedDocument);
-        badge.textContent = getDocumentStatusLabel(requirement.requirementCode, uploadedDocument);
-
-        header.appendChild(meta);
-        header.appendChild(badge);
-        node.appendChild(header);
-
-        if (requirement.description) {
-          const description = document.createElement("div");
-          description.className = "doc-note";
-          description.textContent = requirement.description;
-          node.appendChild(description);
-        }
-
-        const status = document.createElement("div");
-        status.className = "doc-status";
-        status.textContent = uploadedDocument
-          ? "Uploaded as " + (uploadedDocument.originalName || "document")
-            + (uploadedDocument.sizeBytes ? " • " + formatFileSize(uploadedDocument.sizeBytes) : "")
-          : getDocumentPickerGuidance(requirement);
-        node.appendChild(status);
-
-        const actions = document.createElement("div");
-        actions.className = "doc-actions";
-
-        const openInputPicker = (acceptMode, config) => {
-          activeDocumentInputConfig = config;
-
-          if (documentUploadInput) {
-            documentUploadInput.accept = buildFileAcceptAttribute(requirement, acceptMode);
-            documentUploadInput.removeAttribute("capture");
-            documentUploadInput.click();
-          }
-        };
-
-        let captureButton = null;
-        if (requirementAllowsImages(requirement)) {
-          captureButton = document.createElement("button");
-          captureButton.type = "button";
-          captureButton.className = uploadedDocument ? "ghost" : (cameraPrimary ? "" : "secondary");
-          captureButton.disabled = isReadOnly || pendingDocumentUploads.has(requirement.requirementCode);
-          captureButton.textContent = uploadedDocument
-            ? (cameraPrimary ? "Replace with camera" : "Capture replacement")
-            : (cameraPrimary ? "Capture photo" : "Capture document");
-          captureButton.setAttribute("data-document-action-source", "camera");
-          captureButton.addEventListener("click", () => {
-            rememberPortalViewport({
-              sectionCode: DOCUMENT_SECTION_CODE,
-              requirementCode: requirement.requirementCode,
-              actionSource: "camera",
-              awaitingDocumentReturn: true,
-            });
-            activeDocumentInputConfig = {
-              requirementCode: requirement.requirementCode,
-              source: "camera",
-            };
-
-            if (documentCameraInput) {
-              documentCameraInput.accept = buildFileAcceptAttribute(requirement, "camera");
-              documentCameraInput.setAttribute("capture", getCameraCaptureMode(requirement.requirementCode));
-              documentCameraInput.click();
-            }
-          });
-        }
-
-        const uploadPdfButton = (requirementAllowsPdf(requirement) || cameraPrimary)
-          ? document.createElement("button")
-          : null;
-        if (uploadPdfButton) {
-          uploadPdfButton.type = "button";
-          uploadPdfButton.className = uploadedDocument ? "ghost" : (cameraPrimary ? "secondary" : "");
-          uploadPdfButton.disabled = isReadOnly || pendingDocumentUploads.has(requirement.requirementCode);
-          uploadPdfButton.textContent = uploadedDocument
-            ? (cameraPrimary ? "Replace image" : "Replace with PDF")
-            : (cameraPrimary ? "Upload image" : "Upload PDF");
-          uploadPdfButton.setAttribute("data-document-action-source", "upload");
-          uploadPdfButton.addEventListener("click", () => {
-            rememberPortalViewport({
-              sectionCode: DOCUMENT_SECTION_CODE,
-              requirementCode: requirement.requirementCode,
-              actionSource: "upload",
-              awaitingDocumentReturn: true,
-            });
-            openInputPicker(cameraPrimary ? "image" : "pdf", {
-              requirementCode: requirement.requirementCode,
-              source: "upload",
-            });
-          });
-        }
-
-        if (cameraPrimary && captureButton) {
-          actions.appendChild(captureButton);
-          if (uploadPdfButton) {
-            actions.appendChild(uploadPdfButton);
-          }
-        } else {
-          if (uploadPdfButton) {
-            actions.appendChild(uploadPdfButton);
-          }
-          if (captureButton) {
-            actions.appendChild(captureButton);
-          }
-        }
-
-        node.appendChild(actions);
-        documentRequirementsList.appendChild(node);
-      });
-    }
-
-    function getAuthHeaders() {
-      if (state.draftToken) return { "x-draft-token": state.draftToken };
-      if (state.resumeToken) return { "x-resume-token": state.resumeToken };
-      return {};
-    }
-
-    async function request(path, options = {}) {
-      const headers = new Headers(options.headers || {});
-      const authHeaders = getAuthHeaders();
-      Object.keys(authHeaders).forEach((key) => headers.set(key, authHeaders[key]));
-      const response = await fetch(path, { ...options, headers });
-      const contentType = response.headers.get("content-type") || "";
-      const payload = contentType.includes("application/json") ? await response.json() : await response.text();
-      if (!response.ok) {
-        const error = new Error(
-          (payload && payload.error && payload.error.message) || response.statusText || "Request failed"
-        );
-        error.details = payload && payload.error ? payload.error.details : undefined;
-        error.statusCode = response.status;
-        throw error;
-      }
-      return payload.data ?? payload;
-    }
-
-    function buildDocumentUploadPath() {
-      return "/onboard/v1/public/applications/" + state.applicationId + "/documents";
-    }
-
-    function shouldRetryDocumentUploadWithBase64(error) {
-      const statusCode = Number(error && error.statusCode);
-      if (Number.isFinite(statusCode) && statusCode > 0) {
-        return false;
-      }
-
-      const message = error && error.message ? String(error.message).toLowerCase() : "";
-      return (
-        !message
-        || message === "request failed"
-        || message === "failed to fetch"
-        || message === "network request failed"
-        || message.includes("network")
-        || message.includes("fetch")
-      );
-    }
-
-    function readFileAsDataUrl(file) {
-      if (typeof FileReader !== "function") {
-        return Promise.reject(new Error("FILE_READER_UNAVAILABLE"));
-      }
-
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === "string" && reader.result) {
-            resolve(reader.result);
-            return;
-          }
-
-          reject(new Error("FAILED_TO_READ_FILE"));
-        };
-        reader.onerror = () => {
-          reject(new Error("FAILED_TO_READ_FILE"));
-        };
-        reader.readAsDataURL(file);
-      });
-    }
-
-    async function uploadDocumentWithMultipart(file, config) {
-      const formData = new FormData();
-      formData.append("requirementCode", config.requirementCode);
-      formData.append("source", config.source);
-      formData.append("file", file, file.name);
-
-      await request(buildDocumentUploadPath(), {
-        method: "POST",
-        body: formData,
-      });
-    }
-
-    async function uploadDocumentWithBase64(file, config) {
-      const dataUrl = await readFileAsDataUrl(file);
-      const contentBase64 = String(dataUrl).replace(/^data:[^,]+,/, "");
-      if (!contentBase64) {
-        throw new Error("FAILED_TO_READ_FILE");
-      }
-
-      await request(buildDocumentUploadPath(), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          requirementCode: config.requirementCode,
-          source: config.source,
-          filename: file.name || "document.bin",
-          mimeType: file.type || "application/octet-stream",
-          contentBase64,
-        }),
-      });
-    }
-
-    async function uploadDocumentForRequirement(file, config) {
-      if (!config?.requirementCode || !config?.source) {
-        throw new Error("INVALID_REQUIREMENT_CODE");
-      }
-
-      rememberPortalViewport({
-        sectionCode: DOCUMENT_SECTION_CODE,
-        requirementCode: config.requirementCode,
-        actionSource: config.source,
-        awaitingDocumentReturn: false,
-      });
-
-      if (!state.applicationId) {
-        await ensureApplicationStarted();
-      }
-
-      const requirement = getRequirementByCode(config.requirementCode);
-      const requirementLabel = requirement?.label || config.requirementCode;
-      const preparedFile = await prepareDocumentFileForUpload(file);
-
-      pendingDocumentUploads.add(config.requirementCode);
-      renderDocumentRequirements(latestBundle);
-      setDocumentUploadFeedback("Uploading " + requirementLabel + "...", "info");
-
-      try {
-        try {
-          await uploadDocumentWithMultipart(preparedFile, config);
-        } catch (error) {
-          if (!shouldRetryDocumentUploadWithBase64(error)) {
-            throw error;
-          }
-
-          setDocumentUploadFeedback(
-            "Retrying " + requirementLabel + " with mobile-safe upload...",
-            "info"
-          );
-          await uploadDocumentWithBase64(preparedFile, config);
-        }
-
-        pendingDocumentUploads.delete(config.requirementCode);
-        await hydrate(requirementLabel + " uploaded successfully.");
-      } catch (error) {
-        pendingDocumentUploads.delete(config.requirementCode);
-        renderDocumentRequirements(latestBundle);
-        syncDocumentUploadFeedback(latestBundle);
-        throw error;
-      }
-    }
-
-    async function handleDocumentInputChange(input) {
-      const selectedFile = input?.files?.[0] || null;
-      const activeConfig = activeDocumentInputConfig;
-      const uiState = loadPortalUiState();
-      activeDocumentInputConfig = null;
-
-      if (input) {
-        input.value = "";
-      }
-
-      if (!selectedFile || !activeConfig) {
-        schedulePortalViewportRestore({
-          sectionCode: DOCUMENT_SECTION_CODE,
-          requirementCode: activeConfig?.requirementCode || uiState.activeRequirementCode,
-          actionSource: activeConfig?.source || uiState.activeActionSource,
-          focusTarget: true,
-          delay: 80,
-        });
-        return;
-      }
-
-      try {
-        await uploadDocumentForRequirement(selectedFile, activeConfig);
-        schedulePortalViewportRestore({
-          sectionCode: DOCUMENT_SECTION_CODE,
-          requirementCode: activeConfig.requirementCode,
-          actionSource: activeConfig.source,
-          focusTarget: true,
-        });
-      } catch (error) {
-        const friendlyMessage = getFriendlyErrorMessage(
-          error,
-          "We could not upload the selected document. Try again."
-        );
-        setFlash(friendlyMessage, true);
-        setDocumentUploadFeedback(friendlyMessage, "error");
-        schedulePortalViewportRestore({
-          sectionCode: DOCUMENT_SECTION_CODE,
-          requirementCode: activeConfig.requirementCode,
-          actionSource: activeConfig.source,
-          focusTarget: true,
-          delay: 80,
-        });
-      }
-    }
+${documentWorkflowClientScript}
 
     function readSection(sectionCode) {
       const form = document.querySelector('[data-section="' + sectionCode + '"]');
@@ -2848,9 +3266,6 @@ export const renderPortalPage = () => {
       });
 
       state.applicationId = result.application.id;
-      state.draftToken = result.draftToken;
-      state.resumeToken = result.resumeToken;
-      state.resumeCode = result.resumeCode;
       saveState();
       rememberPortalViewport();
       movePendingDraftToApplicationDraft(state.applicationId);
@@ -2870,9 +3285,11 @@ export const renderPortalPage = () => {
       });
 
       syncCountryFieldState(true);
+      rememberCommittedProfile();
       setFlowVisualState("active");
       setFormsEnabled(true);
       setActivationState("active");
+      setPortalFlowUnlocked(true);
       persistLocalDraftNow();
       updateSectionStatuses(latestBundle);
       renderDocumentRequirements(latestBundle);
@@ -2890,7 +3307,7 @@ export const renderPortalPage = () => {
           const data = readSection(sectionCode);
           setSectionStatus(
             sectionCode,
-            "pending",
+            sectionHasValues(data) ? "loading" : "pending",
             sectionHasValues(data) ? "In progress" : "Not started"
           );
           scheduleLocalDraftSave();
@@ -3013,6 +3430,7 @@ export const renderPortalPage = () => {
       }
 
       syncCountryFieldState(true);
+      rememberCommittedProfile();
       resetSectionForms();
       bundle.sections.forEach((section) => fillSection(section.sectionCode, section.data));
 
@@ -3029,10 +3447,12 @@ export const renderPortalPage = () => {
       setSubmittingState(false);
       setActivationState("active");
       setFlowVisualState("active");
+      setPortalFlowUnlocked(true);
       updateSectionStatuses(bundle);
       renderDocumentRequirements(bundle);
       syncDocumentUploadFeedback(bundle);
       syncSubmissionFeedback(bundle);
+      revealFlowSection(getPreferredFlowSectionCode(bundle), { remember: false });
       saveState();
 
       if (flashMessage) {
@@ -3126,62 +3546,107 @@ export const renderPortalPage = () => {
     });
 
     async function initializePortal() {
+      setPortalFlowUnlocked(false);
+      syncPortalOperationalState();
       updateCountrySuggestions();
       applyFieldMaxLengths();
       bindInputNormalization();
       bindDraftTracking();
       bindFlowViewportTracking();
+      buildSectionNavigation();
       renderDocumentRequirements(latestBundle);
       syncDocumentUploadFeedback(latestBundle);
-
-      documentCameraInput?.addEventListener("change", () => {
-        handleDocumentInputChange(documentCameraInput);
-      });
-
-      documentUploadInput?.addEventListener("change", () => {
-        handleDocumentInputChange(documentUploadInput);
-      });
-
-      applicantTypeTrigger?.addEventListener("click", () => {
-        openApplicantTypePalette();
-      });
-
-      applicantTypeClose?.addEventListener("click", () => {
-        closeApplicantTypePalette();
-      });
-
-      applicantTypeDialog?.addEventListener("close", () => {
-        applicantTypeTrigger?.setAttribute("aria-expanded", "false");
-      });
-
-      applicantTypeDialog?.addEventListener("click", (event) => {
-        if (event.target === applicantTypeDialog) {
-          closeApplicantTypePalette();
-        }
-      });
+      syncApplicantTypeControls();
+      syncPortalEntryPreview();
+      revealFlowSection(getPreferredFlowSectionCode(), { remember: false });
+      await refreshPortalOperationalStatus({ silent: true });
+      startPortalStatusPolling();
 
       applicantTypeOptionButtons.forEach((button) => {
-        button.addEventListener("click", () => {
-          setApplicantTypeValue(button.getAttribute("data-applicant-type-option"));
+        button.addEventListener("click", async () => {
+          const nextApplicantType = button.getAttribute("data-applicant-type-option");
+          const nextCountry = nextApplicantType === "local"
+            ? "Kenya"
+            : applicantTypeInput?.value === "international"
+              ? String(countryOfIncorporationInput?.value || "").trim()
+              : "";
+          await requestProfileSelectionChange({
+            applicantType: nextApplicantType,
+            country: nextCountry,
+          });
         });
       });
 
-      applicantTypeInput?.addEventListener("change", () => {
-        syncCountryFieldState(Boolean(state.applicationId));
-        scheduleLocalDraftSave();
-      });
-
       countryOfIncorporationInput?.addEventListener("input", () => {
-        updateCountrySuggestions(countryOfIncorporationInput.value);
+        updateCountrySuggestions(countryOfIncorporationInput.value, { open: true });
         updateCountrySearchFeedback();
         refreshPhoneFieldDecorators();
         updateApplicationProfileSummary();
-        scheduleLocalDraftSave();
+        syncPortalEntryPreview();
+        if (!hasStartedApplicationWork()) {
+          scheduleLocalDraftSave();
+        }
       });
 
-      countryOfIncorporationInput?.addEventListener("blur", () => {
-        normalizeCountrySelection();
-        scheduleLocalDraftSave();
+      countryOfIncorporationInput?.addEventListener("focus", () => {
+        if (applicantTypeInput?.value === "international") {
+          updateCountrySuggestions(countryOfIncorporationInput.value, { open: true });
+        }
+      });
+
+      countryOfIncorporationInput?.addEventListener("keydown", async (event) => {
+        if (applicantTypeInput?.value !== "international") {
+          return;
+        }
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (!visibleCountrySuggestions.length) {
+            updateCountrySuggestions(countryOfIncorporationInput.value, { open: true });
+            return;
+          }
+          setActiveCountrySuggestion(
+            activeCountrySuggestionIndex < visibleCountrySuggestions.length - 1
+              ? activeCountrySuggestionIndex + 1
+              : 0
+          );
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (!visibleCountrySuggestions.length) {
+            updateCountrySuggestions(countryOfIncorporationInput.value, { open: true });
+            return;
+          }
+          setActiveCountrySuggestion(
+            activeCountrySuggestionIndex > 0
+              ? activeCountrySuggestionIndex - 1
+              : visibleCountrySuggestions.length - 1
+          );
+          return;
+        }
+
+        if (event.key === "Enter" && visibleCountrySuggestions.length && activeCountrySuggestionIndex >= 0) {
+          event.preventDefault();
+          await commitCountrySelection(visibleCountrySuggestions[activeCountrySuggestionIndex], { focusInput: false });
+          return;
+        }
+
+        if (event.key === "Escape") {
+          closeCountrySuggestions();
+        }
+      });
+
+      countryOfIncorporationInput?.addEventListener("blur", async (event) => {
+        const nextFocus = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+        if (nextFocus?.closest("[data-applicant-type-option]")) {
+          return;
+        }
+
+        const normalizedCountry = normalizeCountrySelection();
+        closeCountrySuggestions();
+        await commitCountryProfileChange(normalizedCountry);
       });
 
       document.querySelectorAll("input, textarea, select").forEach((field) => {
@@ -3205,8 +3670,37 @@ export const renderPortalPage = () => {
         }
       });
 
+      document.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element)) {
+          return;
+        }
+
+        if (!event.target.closest(".profile-country-field")) {
+          closeCountrySuggestions();
+        }
+      });
+
+      profileSwitchCancel?.addEventListener("click", () => {
+        closeProfileSwitchOverlay(false);
+      });
+
+      profileSwitchConfirm?.addEventListener("click", () => {
+        closeProfileSwitchOverlay(true);
+      });
+
+      profileSwitchOverlay?.addEventListener("click", (event) => {
+        if (event.target === profileSwitchOverlay) {
+          closeProfileSwitchOverlay(false);
+        }
+      });
+
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
+          if (profileSwitchRequest) {
+            closeProfileSwitchOverlay(false);
+            event.preventDefault();
+            return;
+          }
           hideFlashToast();
         }
       });
@@ -3216,6 +3710,15 @@ export const renderPortalPage = () => {
           normalizePhoneFieldsForCountry();
           scheduleLocalDraftSave();
         });
+      });
+
+      portalReviewSetupButton?.addEventListener("click", () => {
+        setPortalEntryCompact(false);
+        scrollToProfileSetup();
+      });
+
+      portalProceedButton?.addEventListener("click", () => {
+        openPortalMainExperience();
       });
 
       const restoreMessage = restoreSessionState();
@@ -3230,7 +3733,7 @@ export const renderPortalPage = () => {
           setFlash(
             getFriendlyErrorMessage(
               error,
-              "We could not restore the saved application. Please start again."
+              "We could not reopen the application. Please start again."
             ),
             true
           );
@@ -3241,7 +3744,6 @@ export const renderPortalPage = () => {
       resetLockedPortal();
       clearLocalDraft("");
       clearPortalUiState();
-      setFlash("Continue below with Section A: General Information.");
     }
 
     void initializePortal();
@@ -3249,12 +3751,13 @@ export const renderPortalPage = () => {
 
   return renderShell({
     eyebrow: "",
-    title: "Welcome to KeNIC Accreditation Platform",
+    title: "KeNIC Registrar Accreditation",
     titleHtml:
-      'Welcome to <span class="hero-title-primary">KeNIC</span> <span class="hero-title-secondary">Accreditation Platform</span>',
+      '<span class="hero-title-primary">KeNIC</span> <span class="hero-title-muted">Registrar Accreditation</span>',
     description:
-      "Complete the registrar application from your phone.",
+      "Complete the registrar accreditation application.",
     body,
     scripts,
+    ...(options.nonce ? { nonce: options.nonce } : {}),
   });
 };
