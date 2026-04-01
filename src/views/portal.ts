@@ -3559,7 +3559,7 @@ ${documentWorkflowClientScript}
       syncApplicantTypeControls();
       syncPortalEntryPreview();
       revealFlowSection(getPreferredFlowSectionCode(), { remember: false });
-      await refreshPortalOperationalStatus({ silent: true });
+      void refreshPortalOperationalStatus({ silent: true });
       startPortalStatusPolling();
 
       applicantTypeOptionButtons.forEach((button) => {

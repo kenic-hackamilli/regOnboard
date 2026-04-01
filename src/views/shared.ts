@@ -1759,7 +1759,7 @@ export const renderShell = (params: {
         <button id="flashToastClose" type="button" class="flash-toast-close">Close</button>
       </div>
     </div>
-    <script type="module"${params.nonce ? ` nonce="${params.nonce}"` : ""}>
+    <script${params.nonce ? ` nonce="${params.nonce}"` : ""}>
       ${params.scripts}
     </script>
   </body>
