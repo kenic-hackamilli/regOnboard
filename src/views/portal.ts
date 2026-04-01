@@ -3746,7 +3746,30 @@ ${documentWorkflowClientScript}
       clearPortalUiState();
     }
 
-    void initializePortal();
+    window.__DOTKE_PORTAL_READY = false;
+    window.__DOTKE_PORTAL_INIT_ERROR = "";
+
+    void initializePortal()
+      .then(() => {
+        window.__DOTKE_PORTAL_READY = true;
+        window.__DOTKE_PORTAL_INIT_ERROR = "";
+      })
+      .catch((error) => {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "PORTAL_INIT_FAILED";
+
+        window.__DOTKE_PORTAL_INIT_ERROR = message;
+        setFlash(
+          "We could not finish loading the onboarding portal. Please refresh and try again.",
+          true
+        );
+
+        if (typeof console !== "undefined" && typeof console.error === "function") {
+          console.error("DotKE portal initialization failed", error);
+        }
+      });
   `;
 
   return renderShell({
