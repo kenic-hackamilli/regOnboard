@@ -14,25 +14,95 @@ import {
   getApplicantPortalStatus,
   setApplicantPortalStatus,
 } from "../src/services/portalStatusService.js";
+import { getApplicationsDashboardSummary as getDashboardSummary } from "../src/services/reviewService.js";
 
 const actorFallback = process.env.USER || process.env.USERNAME || "terminal-admin";
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  collecting_documents: "Collecting Documents",
+  ready_for_submission: "Ready for Submission",
+  submitted: "Submitted",
+  in_review: "In Review",
+  changes_requested: "Changes Requested",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
+const DASHBOARD_STATUS_ORDER = [
+  "draft",
+  "collecting_documents",
+  "ready_for_submission",
+  "submitted",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "rejected",
+] as const;
+
+const printLine = (value = "") => {
+  // eslint-disable-next-line no-console
+  console.log(value);
+};
+
+const printMetric = (label: string, value: string | number) => {
+  printLine(`${label.padEnd(20)}: ${value}`);
+};
+
+const formatApplicantTypeLabel = (value: string) =>
+  value === "international" ? "International" : "Local";
+
+const formatTimestamp = (value?: string | null) => {
+  if (!value) {
+    return "Not yet";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
+
+const printApplicationsDashboard = async () => {
+  const dashboard = await getDashboardSummary();
+
+  printLine("");
+  printLine("Applications Dashboard");
+  printMetric("Total applications", dashboard.totalApplications);
+  printMetric("Local", dashboard.byApplicantType.local);
+  printMetric("International", dashboard.byApplicantType.international);
+
+  printLine("");
+  printLine("Status Breakdown");
+  DASHBOARD_STATUS_ORDER.forEach((status) => {
+    printMetric(STATUS_LABELS[status] || status, dashboard.byStatus[status]);
+  });
+
+  printLine("");
+  printLine("Recent Applications");
+  if (!dashboard.recentApplications.length) {
+    printLine("No applications have been created yet.");
+    return;
+  }
+
+  dashboard.recentApplications.forEach((application, index) => {
+    const companyName = application.companyName || "Untitled applicant";
+    const statusLabel = STATUS_LABELS[application.status] || application.status;
+    const applicantType = formatApplicantTypeLabel(application.applicantType);
+    printLine(
+      `${index + 1}. ${companyName} | ${applicantType} | ${statusLabel} | Updated ${formatTimestamp(application.updatedAt)}`
+    );
+  });
+};
 
 const printPortalStatus = async () => {
   const portalStatus = await getApplicantPortalStatus();
   const reason = portalStatus.reason || "No maintenance reason set.";
 
-  // eslint-disable-next-line no-console
-  console.log("");
-  // eslint-disable-next-line no-console
-  console.log("Applicant Portal");
-  // eslint-disable-next-line no-console
-  console.log(`Status     : ${portalStatus.status}`);
-  // eslint-disable-next-line no-console
-  console.log(`Reason     : ${reason}`);
-  // eslint-disable-next-line no-console
-  console.log(`Updated by : ${portalStatus.updatedBy}`);
-  // eslint-disable-next-line no-console
-  console.log(`Updated at : ${portalStatus.updatedAt}`);
+  printLine("");
+  printLine("Applicant Portal");
+  printMetric("Status", portalStatus.status);
+  printMetric("Reason", reason);
+  printMetric("Updated by", portalStatus.updatedBy);
+  printMetric("Updated at", portalStatus.updatedAt);
 };
 
 const prepareDatabase = async () => {
@@ -63,7 +133,13 @@ const runCommandMode = async (args: string[]) => {
   const actor = parseActorFlag(args);
 
   if (command === "status") {
+    await printApplicationsDashboard();
     await printPortalStatus();
+    return;
+  }
+
+  if (command === "dashboard") {
+    await printApplicationsDashboard();
     return;
   }
 
@@ -72,8 +148,7 @@ const runCommandMode = async (args: string[]) => {
       status: "active",
       updatedBy: actor,
     });
-    // eslint-disable-next-line no-console
-    console.log("Applicant portal marked active.");
+    printLine("Applicant portal marked active.");
     await printPortalStatus();
     return;
   }
@@ -101,23 +176,18 @@ const runCommandMode = async (args: string[]) => {
       reason,
       updatedBy: actor,
     });
-    // eslint-disable-next-line no-console
-    console.log("Applicant portal marked inactive.");
+    printLine("Applicant portal marked inactive.");
     await printPortalStatus();
     return;
   }
 
   if (command === "help" || command === "--help" || command === "-h") {
-    // eslint-disable-next-line no-console
-    console.log("Usage:");
-    // eslint-disable-next-line no-console
-    console.log("  npm run admin");
-    // eslint-disable-next-line no-console
-    console.log("  npm run admin -- status");
-    // eslint-disable-next-line no-console
-    console.log("  npm run admin -- activate [--by \"Your Name\"]");
-    // eslint-disable-next-line no-console
-    console.log("  npm run admin -- deactivate \"Update in progress\" [--by \"Your Name\"]");
+    printLine("Usage:");
+    printLine("  npm run admin");
+    printLine("  npm run admin -- status");
+    printLine("  npm run admin -- dashboard");
+    printLine("  npm run admin -- activate [--by \"Your Name\"]");
+    printLine("  npm run admin -- deactivate \"Update in progress\" [--by \"Your Name\"]");
     return;
   }
 
@@ -129,19 +199,14 @@ const runInteractiveMode = async () => {
 
   try {
     while (true) {
+      await printApplicationsDashboard();
       await printPortalStatus();
-      // eslint-disable-next-line no-console
-      console.log("");
-      // eslint-disable-next-line no-console
-      console.log("Choose an action:");
-      // eslint-disable-next-line no-console
-      console.log("  1. Refresh status");
-      // eslint-disable-next-line no-console
-      console.log("  2. Mark portal active");
-      // eslint-disable-next-line no-console
-      console.log("  3. Mark portal inactive");
-      // eslint-disable-next-line no-console
-      console.log("  4. Exit");
+      printLine("");
+      printLine("Choose an action:");
+      printLine("  1. Refresh dashboard");
+      printLine("  2. Mark portal active");
+      printLine("  3. Mark portal inactive");
+      printLine("  4. Exit");
 
       const choice = (await rl.question("> ")).trim();
 
@@ -159,16 +224,14 @@ const runInteractiveMode = async () => {
           status: "active",
           updatedBy: actorInput,
         });
-        // eslint-disable-next-line no-console
-        console.log("Portal status updated.");
+        printLine("Portal status updated.");
         continue;
       }
 
       if (choice === "3" || choice.toLowerCase() === "inactive") {
         const reason = (await rl.question("Reason: ")).trim();
         if (!reason) {
-          // eslint-disable-next-line no-console
-          console.log("A maintenance reason is required when the portal is inactive.");
+          printLine("A maintenance reason is required when the portal is inactive.");
           continue;
         }
 
@@ -178,13 +241,11 @@ const runInteractiveMode = async () => {
           reason,
           updatedBy: actorInput,
         });
-        // eslint-disable-next-line no-console
-        console.log("Portal status updated.");
+        printLine("Portal status updated.");
         continue;
       }
 
-      // eslint-disable-next-line no-console
-      console.log("Choose 1, 2, 3, or 4.");
+      printLine("Choose 1, 2, 3, or 4.");
     }
   } finally {
     rl.close();

@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { ApiError } from "../utils/errors.js";
 import { createChecksum } from "../utils/tokens.js";
 import { getAuthorizedApplication, recalculateApplicationState } from "./applicationService.js";
+import { performDocumentSecurityScan } from "./documentSecurityService.js";
 
 type RequirementRow = QueryResultRow & {
   display_order: number;
@@ -37,6 +38,132 @@ type BlobRow = QueryResultRow & {
   id: string;
   content: Buffer;
   content_size_bytes: number;
+};
+
+const MIME_TYPE_ALIASES: Record<string, string> = {
+  "application/x-pdf": "application/pdf",
+  "application/acrobat": "application/pdf",
+  "applications/vnd.pdf": "application/pdf",
+  "image/jpg": "image/jpeg",
+  "image/pjpeg": "image/jpeg",
+  "text/pdf": "application/pdf",
+};
+
+const FILE_EXTENSION_MIME_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  pdf: "application/pdf",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+const normalizeReportedMimeType = (mimeType: string | null | undefined) => {
+  const normalized = String(mimeType || "")
+    .trim()
+    .toLowerCase()
+    .split(";")[0];
+
+  if (!normalized) {
+    return "";
+  }
+
+  return MIME_TYPE_ALIASES[normalized] || normalized;
+};
+
+const inferMimeTypeFromFilename = (filename: string | null | undefined) => {
+  const match = /\.([a-z0-9]+)$/i.exec(String(filename || "").trim());
+  if (!match) {
+    return "";
+  }
+
+  const extension = match[1]?.toLowerCase() || "";
+  return extension ? FILE_EXTENSION_MIME_TYPES[extension] || "" : "";
+};
+
+const detectMimeTypeFromContent = (content: Buffer) => {
+  if (!content.length) {
+    return "";
+  }
+
+  if (
+    content.length >= 5
+    && content[0] === 0x25
+    && content[1] === 0x50
+    && content[2] === 0x44
+    && content[3] === 0x46
+    && content[4] === 0x2d
+  ) {
+    return "application/pdf";
+  }
+
+  if (
+    content.length >= 3
+    && content[0] === 0xff
+    && content[1] === 0xd8
+    && content[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+
+  if (
+    content.length >= 8
+    && content[0] === 0x89
+    && content[1] === 0x50
+    && content[2] === 0x4e
+    && content[3] === 0x47
+    && content[4] === 0x0d
+    && content[5] === 0x0a
+    && content[6] === 0x1a
+    && content[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (
+    content.length >= 12
+    && content.toString("ascii", 0, 4) === "RIFF"
+    && content.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+
+  return "";
+};
+
+const resolveDocumentMimeType = (params: {
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+}) => {
+  const reportedMimeType = normalizeReportedMimeType(params.mimeType);
+  const detectedMimeType = detectMimeTypeFromContent(params.content);
+  const filenameMimeType = inferMimeTypeFromFilename(params.filename);
+
+  const normalizedMimeType =
+    detectedMimeType
+    || (reportedMimeType && reportedMimeType !== "application/octet-stream" ? reportedMimeType : "")
+    || filenameMimeType
+    || reportedMimeType
+    || "application/octet-stream";
+
+  return {
+    reportedMimeType,
+    detectedMimeType,
+    filenameMimeType,
+    normalizedMimeType,
+  };
+};
+
+const getDocumentStatusFromSecurityScan = (status: "clean" | "flagged" | "failed") => {
+  if (status === "flagged") {
+    return "security_review_required";
+  }
+
+  if (status === "failed") {
+    return "security_scan_failed";
+  }
+
+  return "uploaded";
 };
 
 export const listDocuments = async (applicationId: string, token: string) => {
@@ -78,7 +205,6 @@ export const listDocuments = async (applicationId: string, token: string) => {
     uploadStatus: document.upload_status,
     ocrStatus: document.ocr_status,
     documentStatus: document.document_status,
-    validationResults: document.validation_results,
     uploadedAt: document.uploaded_at,
     updatedAt: document.updated_at,
   }));
@@ -105,8 +231,12 @@ export const uploadDocument = async (params: {
       throw new ApiError(400, "EMPTY_FILE");
     }
     if (contentSize > env.MAX_UPLOAD_BYTES) {
-      throw new ApiError(413, "FILE_TOO_LARGE");
+      throw new ApiError(413, "FILE_TOO_LARGE", {
+        maxUploadBytes: env.MAX_UPLOAD_BYTES,
+      });
     }
+
+    const resolvedMime = resolveDocumentMimeType(params);
 
     const requirement = (
       await client.query<RequirementRow>(
@@ -125,13 +255,33 @@ export const uploadDocument = async (params: {
       throw new ApiError(400, "INVALID_REQUIREMENT_CODE");
     }
 
-    if (requirement.allowed_mime_types?.length && !requirement.allowed_mime_types.includes(params.mimeType)) {
+    if (
+      requirement.allowed_mime_types?.length
+      && !requirement.allowed_mime_types.includes(resolvedMime.normalizedMimeType)
+    ) {
       throw new ApiError(400, "UNSUPPORTED_MIME_TYPE", {
         allowedMimeTypes: requirement.allowed_mime_types,
+        detectedMimeType: resolvedMime.detectedMimeType || undefined,
+        filenameMimeType: resolvedMime.filenameMimeType || undefined,
+        providedMimeType: resolvedMime.reportedMimeType || undefined,
+        normalizedMimeType: resolvedMime.normalizedMimeType,
       });
     }
 
     const checksum = createChecksum(params.content);
+    const securityScan = await performDocumentSecurityScan({
+      filename: params.filename,
+      mimeType: resolvedMime.normalizedMimeType,
+      content: params.content,
+    });
+    const documentStatus = getDocumentStatusFromSecurityScan(securityScan.status);
+
+    if (securityScan.status === "failed" && env.BLOCK_UPLOADS_ON_SCAN_FAILURE) {
+      throw new ApiError(503, "DOCUMENT_SCAN_UNAVAILABLE", {
+        scan: securityScan,
+      });
+    }
+
     const oldDocument = (
       await client.query<DocumentRow>(
         `
@@ -196,7 +346,7 @@ export const uploadDocument = async (params: {
           )
           VALUES (
             $1, $2, $3, $4, $5, $6, $7, 'postgres_bytea', $8,
-            'uploaded', 'not_started', 'uploaded', '{}'::jsonb, $9::jsonb, NOW(), NOW()
+            'uploaded', 'not_started', $9, '{}'::jsonb, $10::jsonb, NOW(), NOW()
           )
           ON CONFLICT (application_id, requirement_code)
           DO UPDATE SET
@@ -233,15 +383,21 @@ export const uploadDocument = async (params: {
           params.requirementCode,
           params.source,
           params.filename,
-          params.mimeType,
+          resolvedMime.normalizedMimeType,
           contentSize,
           blobRow.id,
           checksum,
+          documentStatus,
           JSON.stringify({
             mimeAllowed: true,
             sizeAllowed: true,
             checksum,
             ingestChannel: params.source,
+            detectedMimeType: resolvedMime.detectedMimeType || null,
+            filenameMimeType: resolvedMime.filenameMimeType || null,
+            normalizedMimeType: resolvedMime.normalizedMimeType,
+            providedMimeType: resolvedMime.reportedMimeType || null,
+            scan: securityScan,
             state: "received",
           }),
         ]
@@ -265,7 +421,9 @@ export const uploadDocument = async (params: {
           requirementCode: params.requirementCode,
           filename: params.filename,
           sizeBytes: contentSize,
-          mimeType: params.mimeType,
+          mimeType: resolvedMime.normalizedMimeType,
+          documentStatus,
+          scanStatus: securityScan.status,
         }),
       ]
     );

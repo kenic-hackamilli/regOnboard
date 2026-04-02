@@ -21,6 +21,7 @@ import {
 } from "../services/portalStatusService.js";
 import {
   applyHtmlSecurityHeaders,
+  assertTrustedRequestOrigin,
   clearApplicantSessionCookie,
   createAssetNonce,
   getApplicantSessionToken,
@@ -57,24 +58,34 @@ const decodeBase64DocumentContent = (value: string) => {
   return content;
 };
 
-const getApplicantToken = (request: FastifyRequest) => {
+const getApplicantAuth = (
+  request: FastifyRequest,
+  options: { allowQueryToken?: boolean } = {}
+) => {
   const cookieToken = getApplicantSessionToken(request);
   const draftToken = request.headers["x-draft-token"];
   const resumeToken = request.headers["x-resume-token"];
-  const tokenFromQuery = (request.query as { token?: string } | undefined)?.token;
+  const tokenFromQuery = options.allowQueryToken
+    ? (request.query as { token?: string } | undefined)?.token
+    : "";
 
-  const token =
-    (typeof cookieToken === "string" && cookieToken.trim()) ||
-    (typeof draftToken === "string" && draftToken.trim()) ||
-    (typeof resumeToken === "string" && resumeToken.trim()) ||
-    (typeof tokenFromQuery === "string" && tokenFromQuery.trim()) ||
-    "";
-
-  if (!token) {
-    throw new ApiError(401, "DRAFT_OR_RESUME_TOKEN_REQUIRED");
+  if (typeof cookieToken === "string" && cookieToken.trim()) {
+    return { token: cookieToken.trim(), source: "cookie" as const };
   }
 
-  return token;
+  if (typeof draftToken === "string" && draftToken.trim()) {
+    return { token: draftToken.trim(), source: "draft-header" as const };
+  }
+
+  if (typeof resumeToken === "string" && resumeToken.trim()) {
+    return { token: resumeToken.trim(), source: "resume-header" as const };
+  }
+
+  if (typeof tokenFromQuery === "string" && tokenFromQuery.trim()) {
+    return { token: tokenFromQuery.trim(), source: "query" as const };
+  }
+
+  throw new ApiError(401, "DRAFT_OR_RESUME_TOKEN_REQUIRED");
 };
 
 export const registerPublicRoutes = async (app: FastifyInstance) => {
@@ -142,7 +153,8 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     return reply.redirect(`/portal?applicationId=${encodeURIComponent(applicationId)}`);
   });
 
-  registerPublicPost("/session/clear", async (_request, reply) => {
+  registerPublicPost("/session/clear", async (request, reply) => {
+    assertTrustedRequestOrigin(request);
     clearApplicantSessionCookie(reply);
     return ok(reply, { cleared: true });
   });
@@ -172,40 +184,49 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
   });
 
   registerPublicGet("/applications/:id", async (request, reply) => {
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
     const params = request.params as { id: string };
-    return ok(reply, await getApplicationBundle(params.id, token));
+    return ok(reply, await getApplicationBundle(params.id, auth.token));
   });
 
   registerPublicPatch("/applications/:id/sections/:sectionCode", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
+    if (auth.source === "cookie") {
+      assertTrustedRequestOrigin(request);
+    }
     const params = request.params as { id: string; sectionCode: string };
-    return ok(reply, await saveSection(params.id, token, params.sectionCode, request.body));
+    return ok(reply, await saveSection(params.id, auth.token, params.sectionCode, request.body));
   });
 
   registerPublicPut("/applications/:id/form", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
+    if (auth.source === "cookie") {
+      assertTrustedRequestOrigin(request);
+    }
     const params = request.params as { id: string };
-    return ok(reply, await saveApplicationForm(params.id, token, request.body));
+    return ok(reply, await saveApplicationForm(params.id, auth.token, request.body));
   });
 
   registerPublicGet("/applications/:id/checklist", async (request, reply) => {
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
     const params = request.params as { id: string };
-    return ok(reply, await getChecklist(params.id, token));
+    return ok(reply, await getChecklist(params.id, auth.token));
   });
 
   registerPublicGet("/applications/:id/documents", async (request, reply) => {
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
     const params = request.params as { id: string };
-    return ok(reply, await listDocuments(params.id, token));
+    return ok(reply, await listDocuments(params.id, auth.token));
   });
 
   registerPublicPost("/applications/:id/documents", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
+    if (auth.source === "cookie") {
+      assertTrustedRequestOrigin(request);
+    }
     const params = request.params as { id: string };
     const contentType = String(request.headers["content-type"] ?? "");
     let requirementCode = "";
@@ -249,7 +270,7 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
 
     const result = await uploadDocument({
       applicationId: params.id,
-      token,
+      token: auth.token,
       requirementCode,
       source,
       filename,
@@ -261,31 +282,37 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
   });
 
   registerPublicGet("/applications/:id/documents/:documentId/download", async (request, reply) => {
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
     const params = request.params as { id: string; documentId: string };
-    const document = await getDocumentForApplicant(params.id, params.documentId, token);
+    const document = await getDocumentForApplicant(params.id, params.documentId, auth.token);
     reply.header("Content-Disposition", `attachment; filename="${document.filename}"`);
     reply.type(document.mimeType).send(document.content);
   });
 
   registerPublicPost("/applications/:id/resume/request", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
+    if (auth.source === "cookie") {
+      assertTrustedRequestOrigin(request);
+    }
     const params = request.params as { id: string };
-    return ok(reply, await issueResumeToken(params.id, token));
+    return ok(reply, await issueResumeToken(params.id, auth.token));
   });
 
   registerPublicPost("/applications/:id/submit", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
+    if (auth.source === "cookie") {
+      assertTrustedRequestOrigin(request);
+    }
     const params = request.params as { id: string };
-    return ok(reply, await submitApplication(params.id, token, request.body));
+    return ok(reply, await submitApplication(params.id, auth.token, request.body));
   });
 
   registerPublicGet("/applications/:id/status", async (request, reply) => {
-    const token = getApplicantToken(request);
+    const auth = getApplicantAuth(request);
     const params = request.params as { id: string };
-    const bundle = await getApplicationBundle(params.id, token);
+    const bundle = await getApplicationBundle(params.id, auth.token);
     return ok(reply, {
       application: bundle.application,
       checklist: bundle.checklist,

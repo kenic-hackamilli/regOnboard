@@ -1,12 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { pingDatabase } from "../config/db.js";
 import { env } from "../config/env.js";
+import { applyHtmlSecurityHeaders, createAssetNonce } from "../utils/httpSecurity.js";
 
 export const registerHealthRoutes = async (app: FastifyInstance) => {
   app.get("/", async (_req, reply) => {
     const adminLink = env.ADMIN_PORTAL_ENABLED
       ? '<li><a href="/admin">Admin portal</a></li>'
       : "";
+    const nonce = createAssetNonce();
+
+    applyHtmlSecurityHeaders(reply, nonce);
 
     reply.type("text/html").send(`
       <html>
@@ -34,7 +38,12 @@ export const registerHealthRoutes = async (app: FastifyInstance) => {
       ok: database.ok,
       service: "onboard-backend",
       timestamp: new Date().toISOString(),
-      database,
+      database: env.NODE_ENV === "production"
+        ? {
+            ok: database.ok,
+            latencyMs: database.latencyMs,
+          }
+        : database,
     };
   });
 };

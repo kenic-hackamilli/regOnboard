@@ -37,11 +37,26 @@ npm run db:stop
 npm run db:migrate
 ```
 
+## Admin terminal
+
+```bash
+npm run admin
+npm run admin -- status
+npm run admin -- dashboard
+```
+
+The terminal admin console now shows an applications dashboard with totals, local vs international counts, and a workflow status breakdown alongside the portal status controls.
+
 ## Production notes
 
 - `LOCAL_DB_AUTO_START` defaults to `false` when `NODE_ENV=production`
 - `AUTO_RUN_MIGRATIONS` defaults to `false` when `NODE_ENV=production`
 - In production, point `DATABASE_URL` at an external managed Postgres instance and run `npm run db:migrate` as part of deployment
+- Set `PUBLIC_BASE_URL` to the exact deployed applicant portal origin, for example `https://apps.kenic.or.ke`
+- Set `CORS_ORIGIN` to an explicit comma-separated allowlist if you need cross-origin browser access; otherwise the backend now defaults to the deployed portal origin instead of permissive wildcard browser access
+- Set `ADMIN_SESSION_SECRET` to a long random secret and keep `ADMIN_API_TOKEN` only for initial admin sign-in or terminal/script access
+- For document malware scanning, set `DOCUMENT_SCAN_COMMAND` to an installed scanner command such as `clamdscan --stdout --no-summary {file}`; the backend will also run built-in heuristic checks even when no external scanner is configured
+- If you want uploads to fail closed when the external scanner is unavailable, set `BLOCK_UPLOADS_ON_SCAN_FAILURE=true`
 - If `DATABASE_URL` still points to `localhost`, the app will only bootstrap its own local cluster when PostgreSQL tools such as `initdb` and `pg_ctl` are installed. Otherwise set `LOCAL_DB_AUTO_START=false` and use an already running PostgreSQL service.
 
 ## Key routes

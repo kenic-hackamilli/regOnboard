@@ -303,13 +303,30 @@ const buildPortalBody = (options: {
               <label>What is your target market?<span class="required-mark">*</span><textarea name="targetMarket" placeholder="What is your target market?"></textarea></label>
               <label>Which Third Level Domains will you be selling?<span class="required-mark">*</span><textarea name="thirdLevelDomains" placeholder="List all Third Level Domains"></textarea></label>
               <div class="row">
-                <label>
-                  <span>Do you intend to sell Second Level Domains?<span class="required-mark">*</span></span>
-                  <select name="intendsSecondLevelSales">
+                <div class="field-block">
+                  <div class="field-label-row">
+                    <span>Do you intend to sell Second Level Domains?<span class="required-mark">*</span></span>
+                  </div>
+                  <select
+                    name="intendsSecondLevelSales"
+                    class="visually-hidden-control"
+                    tabindex="-1"
+                    aria-hidden="true"
+                  >
                     <option value="false">No</option>
                     <option value="true">Yes</option>
                   </select>
-                </label>
+                  <div class="inline-choice-group" role="radiogroup" aria-label="Second Level Domain sales">
+                    <button type="button" class="inline-choice" data-second-level-sales-option="false" aria-pressed="true">
+                      <span class="inline-choice-indicator" aria-hidden="true"></span>
+                      <span class="inline-choice-label">No</span>
+                    </button>
+                    <button type="button" class="inline-choice" data-second-level-sales-option="true" aria-pressed="false">
+                      <span class="inline-choice-indicator" aria-hidden="true"></span>
+                      <span class="inline-choice-label">Yes</span>
+                    </button>
+                  </div>
+                </div>
                 <label>If yes, what strategies do you intend to use?<span class="required-mark">*</span><textarea name="secondLevelSalesStrategy" placeholder="If yes, what strategies do you intend to use?"></textarea></label>
               </div>
               <label>Are you currently a Registrar for other domains?<span class="required-mark">*</span><textarea name="otherRegistrarDomains" placeholder="List the domains if applicable"></textarea></label>
@@ -519,6 +536,10 @@ export const renderPortalClientScript = () => {
     const applicantTypeHint = document.getElementById("applicantTypeHint");
     const applicantTypeOptionButtons = Array.from(
       document.querySelectorAll("[data-applicant-type-option]")
+    );
+    const secondLevelSalesInput = document.querySelector('select[name="intendsSecondLevelSales"]');
+    const secondLevelSalesOptionButtons = Array.from(
+      document.querySelectorAll("[data-second-level-sales-option]")
     );
     const countryOfIncorporationInput = document.getElementById("countryOfIncorporation");
     const countrySuggestionList = document.getElementById("countrySuggestionList");
@@ -2536,6 +2557,17 @@ export const renderPortalClientScript = () => {
       });
     }
 
+    function syncSecondLevelSalesControls() {
+      const value = secondLevelSalesInput?.value === "true" ? "true" : "false";
+
+      secondLevelSalesOptionButtons.forEach((button) => {
+        const selected = button.getAttribute("data-second-level-sales-option") === value;
+        button.dataset.selected = selected ? "true" : "false";
+        button.setAttribute("aria-pressed", selected ? "true" : "false");
+        button.disabled = Boolean(secondLevelSalesInput?.disabled);
+      });
+    }
+
     function updateApplicationProfileSummary() {
       const applicantTypeLabel = getApplicantTypeLabel(applicantTypeInput?.value);
       if (applicationProfileApplicantType) {
@@ -2704,6 +2736,7 @@ export const renderPortalClientScript = () => {
       document.querySelectorAll("[data-section] input, [data-section] textarea, [data-section] select").forEach((field) => {
         field.disabled = !allowEdits;
       });
+      syncSecondLevelSalesControls();
       updateActionButtons();
       renderDocumentRequirements(latestBundle);
     }
@@ -2763,6 +2796,7 @@ export const renderPortalClientScript = () => {
           field.value = "";
         });
       });
+      syncSecondLevelSalesControls();
     }
 
     function resetSectionStatuses() {
@@ -2897,8 +2931,21 @@ export const renderPortalClientScript = () => {
       syncFlowNavigationState();
     }
 
+    function clearFieldInvalidState(field) {
+      if (!field || !field.classList) {
+        return;
+      }
+
+      field.classList.remove("is-invalid");
+      field.closest(".input-with-prefix")?.classList.remove("is-invalid");
+      field.closest(".field-block")?.querySelector(".inline-choice-group")?.classList.remove("is-invalid");
+    }
+
     function clearInvalidFieldHighlights() {
       document.querySelectorAll(".is-invalid").forEach((node) => {
+        node.classList.remove("is-invalid");
+      });
+      document.querySelectorAll(".inline-choice-group.is-invalid").forEach((node) => {
         node.classList.remove("is-invalid");
       });
     }
@@ -2913,6 +2960,11 @@ export const renderPortalClientScript = () => {
       const groupedField = field.closest(".input-with-prefix");
       if (groupedField) {
         groupedField.classList.add("is-invalid");
+      }
+
+      const inlineChoiceGroup = field.closest(".field-block")?.querySelector(".inline-choice-group");
+      if (inlineChoiceGroup) {
+        inlineChoiceGroup.classList.add("is-invalid");
       }
     }
 
@@ -3016,16 +3068,19 @@ export const renderPortalClientScript = () => {
         findFieldInSection(form, issue.fieldPath)
         || form?.querySelector("input:not([disabled]), textarea:not([disabled]), select:not([disabled])")
         || null;
+      const interactiveFocusTarget = focusTarget?.classList?.contains("visually-hidden-control")
+        ? focusTarget.closest(".field-block")?.querySelector(".inline-choice:not([disabled])") || focusTarget
+        : focusTarget;
 
       clearInvalidFieldHighlights();
       markFieldInvalid(focusTarget);
 
-      if (focusTarget && typeof focusTarget.focus === "function") {
+      if (interactiveFocusTarget && typeof interactiveFocusTarget.focus === "function") {
         setTimeout(() => {
           try {
-            focusTarget.focus({ preventScroll: true });
+            interactiveFocusTarget.focus({ preventScroll: true });
           } catch {
-            focusTarget.focus();
+            interactiveFocusTarget.focus();
           }
         }, 260);
       }
@@ -3141,6 +3196,46 @@ export const renderPortalClientScript = () => {
       }, tone === "error" ? 5000 : 3200);
     }
 
+    function formatFileSizeLimit(sizeBytes) {
+      const bytes = Number(sizeBytes);
+      if (!Number.isFinite(bytes) || bytes <= 0) {
+        return "";
+      }
+
+      if (bytes < 1024 * 1024) {
+        return (bytes / 1024).toFixed(0) + " KB";
+      }
+
+      return (bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1) + " MB";
+    }
+
+    function formatAllowedDocumentTypeLabel(mimeType) {
+      const labels = {
+        "application/pdf": "PDF",
+        "image/jpeg": "JPG or JPEG",
+        "image/png": "PNG",
+        "image/webp": "WEBP",
+      };
+
+      return labels[mimeType] || String(mimeType || "").toUpperCase();
+    }
+
+    function buildSupportedDocumentTypesMessage(allowedMimeTypes) {
+      if (!Array.isArray(allowedMimeTypes) || !allowedMimeTypes.length) {
+        return "";
+      }
+
+      const labels = [];
+      allowedMimeTypes.forEach((mimeType) => {
+        const label = formatAllowedDocumentTypeLabel(mimeType);
+        if (label && !labels.includes(label)) {
+          labels.push(label);
+        }
+      });
+
+      return labels.length ? " Supported formats: " + labels.join(", ") + "." : "";
+    }
+
     function setFlash(message, toneOrIsError = "info") {
       const tone = toneOrIsError === true
         ? "error"
@@ -3187,7 +3282,11 @@ export const renderPortalClientScript = () => {
         EMPTY_FILE:
           "The selected document is empty. Choose another file and try again.",
         FILE_TOO_LARGE:
-          "The selected document is too large. Choose a smaller file and try again.",
+          error?.details?.maxUploadBytes
+            ? "The selected document is too large. Files must be "
+              + formatFileSizeLimit(error.details.maxUploadBytes)
+              + " or smaller."
+            : "The selected document is too large. Choose a smaller file and try again.",
         INVALID_FILE_ENCODING:
           "We could not read the selected document. Choose it again and try once more.",
         FAILED_TO_READ_FILE:
@@ -3195,11 +3294,20 @@ export const renderPortalClientScript = () => {
         FILE_READER_UNAVAILABLE:
           "This device does not support the fallback uploader. Try again or update the app.",
         UNSUPPORTED_MIME_TYPE:
-          "This document type is not allowed for the selected requirement.",
+          "This document type is not allowed for the selected requirement."
+          + buildSupportedDocumentTypesMessage(error?.details?.allowedMimeTypes),
+        DOCUMENT_SCAN_UNAVAILABLE:
+          "The security scanner could not complete for this document right now. Please try again shortly.",
         INVALID_REQUIREMENT_CODE:
           "The selected checklist requirement is no longer valid. Refresh the page and try again.",
+        REQUIREMENT_CODE_REQUIRED:
+          "Choose a checklist requirement before uploading a document.",
         INVALID_APPLICATION_FORM_PAYLOAD:
           "We could not read the application form. Refresh the page and try again.",
+        ORIGIN_REQUIRED:
+          "We could not verify this browser request. Refresh the portal and try again.",
+        UNTRUSTED_ORIGIN:
+          "This request was blocked because it did not come from the trusted portal origin.",
         COUNTRY_OF_INCORPORATION_REQUIRED:
           "Select the country of incorporation before submitting an international application.",
         COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL:
@@ -3285,6 +3393,7 @@ ${documentWorkflowClientScript}
         }
         element.value = String(value);
       });
+      syncSecondLevelSalesControls();
     }
 
     function buildApplicationPayload() {
@@ -3612,6 +3721,7 @@ ${documentWorkflowClientScript}
       renderDocumentRequirements(latestBundle);
       syncDocumentUploadFeedback(latestBundle);
       syncApplicantTypeControls();
+      syncSecondLevelSalesControls();
       syncPortalEntryPreview();
       revealFlowSection(getPreferredFlowSectionCode(), { remember: false });
       void refreshPortalOperationalStatus({ silent: true });
@@ -3629,6 +3739,27 @@ ${documentWorkflowClientScript}
             applicantType: nextApplicantType,
             country: nextCountry,
           });
+        });
+      });
+
+      secondLevelSalesOptionButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          if (!secondLevelSalesInput || secondLevelSalesInput.disabled) {
+            return;
+          }
+
+          const nextValue = button.getAttribute("data-second-level-sales-option") === "true"
+            ? "true"
+            : "false";
+
+          if (secondLevelSalesInput.value === nextValue) {
+            return;
+          }
+
+          secondLevelSalesInput.value = nextValue;
+          secondLevelSalesInput.dispatchEvent(new Event("input", { bubbles: true }));
+          secondLevelSalesInput.dispatchEvent(new Event("change", { bubbles: true }));
+          syncSecondLevelSalesControls();
         });
       });
 
@@ -3706,12 +3837,10 @@ ${documentWorkflowClientScript}
 
       document.querySelectorAll("input, textarea, select").forEach((field) => {
         field.addEventListener("input", () => {
-          field.classList.remove("is-invalid");
-          field.closest(".input-with-prefix")?.classList.remove("is-invalid");
+          clearFieldInvalidState(field);
         });
         field.addEventListener("change", () => {
-          field.classList.remove("is-invalid");
-          field.closest(".input-with-prefix")?.classList.remove("is-invalid");
+          clearFieldInvalidState(field);
         });
       });
 

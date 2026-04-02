@@ -68,27 +68,30 @@ export const documentWorkflowClientScript = `
     }
 
     function buildFileAcceptAttribute(requirement, source = "upload") {
+      const pdfTypes = [".pdf", "application/pdf"];
+      const imageTypes = [".jpg", ".jpeg", ".png", ".webp", "image/jpeg", "image/png", "image/webp", "image/*"];
+
       if (source === "camera") {
         return requirementAllowsImages(requirement) ? "image/*" : "";
       }
 
       if (source === "pdf") {
-        return requirementAllowsPdf(requirement) ? "application/pdf" : "";
+        return requirementAllowsPdf(requirement) ? pdfTypes.join(",") : "";
       }
 
       if (source === "image") {
-        return requirementAllowsImages(requirement) ? "image/*" : "";
+        return requirementAllowsImages(requirement) ? imageTypes.join(",") : "";
       }
 
       const acceptedTypes = [];
       if (requirementAllowsPdf(requirement)) {
-        acceptedTypes.push("application/pdf");
+        acceptedTypes.push(...pdfTypes);
       }
       if (requirementAllowsImages(requirement)) {
-        acceptedTypes.push("image/*");
+        acceptedTypes.push(...imageTypes);
       }
 
-      return acceptedTypes.join(",") || "*/*";
+      return [...new Set(acceptedTypes)].join(",") || "*/*";
     }
 
     function createDocumentPickerControl(requirement, options) {
@@ -217,7 +220,11 @@ export const documentWorkflowClientScript = `
       }
 
       if (String(file.type || "").startsWith("image/")) {
-        return normalizeImageFile(file);
+        try {
+          return await normalizeImageFile(file);
+        } catch {
+          return file;
+        }
       }
 
       return file;

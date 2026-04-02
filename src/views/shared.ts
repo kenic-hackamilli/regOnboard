@@ -585,6 +585,10 @@ button.inline-choice,
   border-color: transparent;
   box-shadow: none;
 }
+.inline-choice:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
 .inline-choice:focus-visible .inline-choice-indicator {
   box-shadow: 0 0 0 4px rgba(0,151,57,0.12);
 }
@@ -618,6 +622,10 @@ button.inline-choice,
   border: solid #0b8f42;
   border-width: 0 2px 2px 0;
   transform: translate(-50%, -58%) rotate(45deg);
+}
+.inline-choice-group.is-invalid .inline-choice-indicator {
+  border-color: rgba(227,6,19,0.58);
+  box-shadow: 0 0 0 4px rgba(227,6,19,0.1);
 }
 .inline-choice-label {
   font-size: 14px;
@@ -1312,17 +1320,13 @@ button.flow-step-tab,
   color: var(--success);
 }
 .mini-pill.ready::before {
-  display: none;
-}
-.mini-pill.ready::after {
-  content: "";
   width: 6px;
   height: 10px;
+  border-radius: 0;
+  background: transparent;
   border: solid #0b8f42;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
-  margin-left: -18px;
-  margin-right: 8px;
 }
 .mini-pill.pending {
   color: var(--gray600);

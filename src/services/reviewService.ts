@@ -1,6 +1,7 @@
 import type { QueryResultRow } from "pg";
 import { query, withTransaction } from "../config/db.js";
 import { ApiError } from "../utils/errors.js";
+import { extractDocumentSecurityScan } from "./documentSecurityService.js";
 
 type ApplicationRow = QueryResultRow & {
   id: string;
@@ -25,6 +26,31 @@ type ReviewTaskRow = QueryResultRow & {
   created_at: string;
   updated_at: string;
 };
+
+type ReviewDocumentSecurityRow = QueryResultRow & {
+  requirement_code: string;
+  original_name: string | null;
+  validation_results: Record<string, unknown> | null;
+};
+
+type DashboardCountRow = QueryResultRow & {
+  applicant_type: string;
+  status: string;
+  count: number | string;
+};
+
+const ADMIN_DASHBOARD_STATUS_ORDER = [
+  "draft",
+  "collecting_documents",
+  "ready_for_submission",
+  "submitted",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "rejected",
+] as const;
+
+type AdminDashboardStatus = (typeof ADMIN_DASHBOARD_STATUS_ORDER)[number];
 
 export const listApplicationsForAdmin = async (status?: string) => {
   const values: unknown[] = [];
@@ -75,6 +101,85 @@ export const listApplicationsForAdmin = async (status?: string) => {
     decision: row.decision,
     updatedAt: row.updated_at,
   }));
+};
+
+export const getApplicationsDashboardSummary = async () => {
+  const countRows = await query<DashboardCountRow>(
+    `
+      SELECT applicant_type, status, COUNT(*)::int AS count
+      FROM onboard_applications
+      GROUP BY applicant_type, status
+    `
+  );
+
+  const recentRows = await query<ApplicationRow>(
+    `
+      SELECT
+        id,
+        applicant_type,
+        status,
+        company_name,
+        company_registration_number,
+        company_tin,
+        progress_percent,
+        created_at,
+        updated_at,
+        submitted_at
+      FROM onboard_applications
+      ORDER BY created_at DESC
+      LIMIT 6
+    `
+  );
+
+  const byApplicantType = {
+    local: 0,
+    international: 0,
+  };
+
+  const byStatus: Record<AdminDashboardStatus, number> = {
+    draft: 0,
+    collecting_documents: 0,
+    ready_for_submission: 0,
+    submitted: 0,
+    in_review: 0,
+    changes_requested: 0,
+    approved: 0,
+    rejected: 0,
+  };
+
+  let totalApplications = 0;
+
+  countRows.forEach((row) => {
+    const count = Number(row.count) || 0;
+    totalApplications += count;
+
+    if (row.applicant_type === "international") {
+      byApplicantType.international += count;
+    } else {
+      byApplicantType.local += count;
+    }
+
+    const matchedStatus = ADMIN_DASHBOARD_STATUS_ORDER.find((status) => status === row.status);
+    if (matchedStatus) {
+      byStatus[matchedStatus] += count;
+    }
+  });
+
+  return {
+    totalApplications,
+    byApplicantType,
+    byStatus,
+    recentApplications: recentRows.map((row) => ({
+      id: row.id,
+      applicantType: row.applicant_type,
+      status: row.status,
+      companyName: row.company_name,
+      progressPercent: row.progress_percent ?? 0,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      submittedAt: row.submitted_at,
+    })),
+  };
 };
 
 export const getApplicationForAdmin = async (applicationId: string) => {
@@ -187,6 +292,42 @@ export const updateReviewState = async (params: {
 
     if (!application) {
       throw new ApiError(404, "APPLICATION_NOT_FOUND");
+    }
+
+    if (params.nextStatus === "approved") {
+      const securityRows = (
+        await client.query<ReviewDocumentSecurityRow>(
+          `
+            SELECT requirement_code, original_name, validation_results
+            FROM onboard_documents
+            WHERE application_id = $1
+            ORDER BY requirement_code
+          `,
+          [params.applicationId]
+        )
+      ).rows;
+
+      const blockedDocuments = securityRows
+        .map((row) => {
+          const scan = extractDocumentSecurityScan(row.validation_results);
+          if (!scan || scan.status === "clean") {
+            return null;
+          }
+
+          return {
+            requirementCode: row.requirement_code,
+            originalName: row.original_name,
+            scanStatus: scan.status,
+            findings: scan.findings.map((finding) => finding.message),
+          };
+        })
+        .filter(Boolean);
+
+      if (blockedDocuments.length > 0) {
+        throw new ApiError(409, "DOCUMENT_SECURITY_REVIEW_REQUIRED", {
+          documents: blockedDocuments,
+        });
+      }
     }
 
     const task = (
