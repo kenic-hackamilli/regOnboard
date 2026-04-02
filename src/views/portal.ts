@@ -561,7 +561,7 @@ export const renderPortalClientScript = () => {
     const flowSectionCodes = flowSectionNodes
       .map((node) => node.getAttribute("data-flow-section"))
       .filter((sectionCode) => typeof sectionCode === "string" && sectionCode);
-    const flowSectionMeta = Object.fromEntries(
+    const flowSectionMeta = fromEntries(
       flowSectionNodes.map((node) => {
         const sectionCode = node.getAttribute("data-flow-section") || "";
         return [
@@ -574,7 +574,7 @@ export const renderPortalClientScript = () => {
         ];
       })
     );
-    const sectionStatusNodes = Object.fromEntries(
+    const sectionStatusNodes = fromEntries(
       Array.from(document.querySelectorAll("[data-section-status]")).map((node) => [
         node.getAttribute("data-section-status"),
         node,
@@ -871,6 +871,18 @@ export const renderPortalClientScript = () => {
       }
 
       return candidate;
+    }
+
+    function fromEntries(entries) {
+      const record = {};
+      entries.forEach((entry) => {
+        if (!Array.isArray(entry) || entry.length < 2) {
+          return;
+        }
+
+        record[entry[0]] = entry[1];
+      });
+      return record;
     }
 
     function isRecord(value) {
@@ -3839,7 +3851,7 @@ export const renderPortalPage = (options: {
     description:
       "Complete the registrar accreditation application.",
     body,
-    scriptSrc: "./portal/client.js",
+    scriptSrc: `./portal/client.js?v=${encodeURIComponent(options.nonce || "portal-client")}`,
     ...(options.nonce ? { nonce: options.nonce } : {}),
   });
 };

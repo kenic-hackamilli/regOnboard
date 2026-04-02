@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { env } from "../config/env.js";
+import { portalClientScript } from "../generated/portalClient.generated.js";
 import {
   createApplication,
   getApplicationBundle,
@@ -78,7 +80,11 @@ const getApplicantToken = (request: FastifyRequest) => {
 export const registerPublicRoutes = async (app: FastifyInstance) => {
   app.get("/portal/client.js", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
-    reply.type("application/javascript").send(renderPortalClientScript());
+    reply.type("application/javascript").send(
+      env.NODE_ENV === "production"
+        ? portalClientScript
+        : renderPortalClientScript()
+    );
   });
 
   app.get("/portal", async (request, reply) => {

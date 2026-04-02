@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch scripts/start.ts",
-    "build": "tsc -p tsconfig.json",
+    "build:portal-client": "tsx scripts/buildPortalClient.ts",
+    "build": "npm run build:portal-client && tsc -p tsconfig.json",
     "prestart": "npm run build",
     "start": "node dist/scripts/start.js",
     "db:start": "tsx scripts/db.ts start",
