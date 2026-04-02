@@ -135,7 +135,9 @@ export const documentWorkflowClientScript = `
         return "";
       }
 
-      return "/onboard/v1/public/applications/" + state.applicationId + "/documents/" + documentId + "/download";
+      return resolvePortalPath(
+        "/onboard/v1/public/applications/" + state.applicationId + "/documents/" + documentId + "/download"
+      );
     }
 
     function replaceFilenameExtension(filename, nextExtension) {
@@ -507,7 +509,7 @@ export const documentWorkflowClientScript = `
 
     async function request(path, options = {}) {
       const headers = new Headers(options.headers || {});
-      const response = await fetch(path, {
+      const response = await fetch(resolvePortalPath(path), {
         ...options,
         credentials: "same-origin",
         headers,
@@ -526,7 +528,7 @@ export const documentWorkflowClientScript = `
     }
 
     function buildDocumentUploadPath() {
-      return "/onboard/v1/public/applications/" + state.applicationId + "/documents";
+      return resolvePortalPath("/onboard/v1/public/applications/" + state.applicationId + "/documents");
     }
 
     function shouldRetryDocumentUploadWithBase64(error) {

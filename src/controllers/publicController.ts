@@ -25,7 +25,7 @@ import {
   setApplicantSessionCookie,
 } from "../utils/httpSecurity.js";
 import { ApiError } from "../utils/errors.js";
-import { renderPortalPage } from "../views/portal.js";
+import { renderPortalClientScript, renderPortalPage } from "../views/portal.js";
 
 const ok = (reply: FastifyReply, data: unknown) => reply.send({ data, error: null });
 const BASE64_CONTENT_PATTERN =
@@ -76,6 +76,11 @@ const getApplicantToken = (request: FastifyRequest) => {
 };
 
 export const registerPublicRoutes = async (app: FastifyInstance) => {
+  app.get("/portal/client.js", async (_request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    reply.type("application/javascript").send(renderPortalClientScript());
+  });
+
   app.get("/portal", async (request, reply) => {
     const query = (request.query ?? {}) as { applicationId?: string; token?: string };
     const applicationId = coerceString(query.applicationId);

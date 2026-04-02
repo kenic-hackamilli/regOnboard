@@ -1733,7 +1733,8 @@ export const renderShell = (params: {
   description: string;
   eyebrow?: string;
   body: string;
-  scripts: string;
+  scripts?: string;
+  scriptSrc?: string;
   nonce?: string;
 }) => `<!DOCTYPE html>
 <html lang="en">
@@ -1759,8 +1760,10 @@ export const renderShell = (params: {
         <button id="flashToastClose" type="button" class="flash-toast-close">Close</button>
       </div>
     </div>
-    <script${params.nonce ? ` nonce="${params.nonce}"` : ""}>
-      ${params.scripts}
-    </script>
+    ${params.scriptSrc
+      ? `<script src="${params.scriptSrc}"${params.nonce ? ` nonce="${params.nonce}"` : ""}></script>`
+      : `<script${params.nonce ? ` nonce="${params.nonce}"` : ""}>
+      ${params.scripts || ""}
+    </script>`}
   </body>
 </html>`;

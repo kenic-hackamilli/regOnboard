@@ -11,15 +11,24 @@ const serializeForScript = (value: unknown) =>
     .replace(/>/g, "\\u003e")
     .replace(/&/g, "\\u0026");
 
-export const renderPortalPage = (options: {
-  nonce?: string;
-  portalStatus?: {
-    portalKey: string;
-    status: "active" | "inactive";
-    reason: string;
-    updatedBy: string;
-    updatedAt: string;
-  };
+type PortalStatusViewModel = {
+  portalKey: string;
+  status: "active" | "inactive";
+  reason: string;
+  updatedBy: string;
+  updatedAt: string;
+};
+
+const getDefaultPortalStatus = (): PortalStatusViewModel => ({
+  portalKey: "applicant_portal",
+  status: "active",
+  reason: "",
+  updatedBy: "system",
+  updatedAt: "",
+});
+
+const buildPortalBody = (options: {
+  portalStatus?: PortalStatusViewModel;
 } = {}) => {
   const body = `
     <section id="portalStatusBanner" class="portal-status-banner" hidden aria-live="polite">
@@ -430,23 +439,39 @@ export const renderPortalPage = (options: {
         </div>
       </div>
     </div>
+    <template id="portalBootData">${serializeForScript({
+      portalStatus: options.portalStatus ?? getDefaultPortalStatus(),
+    })}</template>
   `;
 
+  return body;
+};
+
+export const renderPortalClientScript = () => {
   const scripts = `
+    const portalBootData = (() => {
+      const node = document.getElementById("portalBootData");
+      if (!node) {
+        return {};
+      }
+
+      try {
+        return JSON.parse(node.textContent || "{}");
+      } catch {
+        return {};
+      }
+    })();
+    const portalBasePath = (() => {
+      const pathname = String(window.location.pathname || "");
+      const portalPathIndex = pathname.lastIndexOf("/portal");
+      return portalPathIndex > 0 ? pathname.slice(0, portalPathIndex) : "";
+    })();
     const stateKey = "dotke.onboard.portal";
     const draftStateKeyPrefix = stateKey + ".draft.";
     const pendingDraftStorageKey = draftStateKeyPrefix + "pending";
     const uiStateKey = stateKey + ".ui";
     const fieldMaxLengths = ${JSON.stringify(SECTION_FIELD_MAX_LENGTHS)};
-    const initialPortalOperationalStatus = ${serializeForScript(
-      options.portalStatus ?? {
-        portalKey: "applicant_portal",
-        status: "active",
-        reason: "",
-        updatedBy: "system",
-        updatedAt: "",
-      }
-    )};
+    const initialPortalOperationalStatus = portalBootData.portalStatus || {};
     const UI_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
     const DOCUMENT_SECTION_CODE = "SECTION_G_SUPPORTING_DOCUMENTS";
     const state = { applicationId: "" };
@@ -826,6 +851,27 @@ export const renderPortalPage = (options: {
 
     const COUNTRY_MATCH_LIMIT = 8;
     const COUNTRY_PREVIEW_LIMIT = 4;
+
+    function resolvePortalPath(path) {
+      const candidate = typeof path === "string" ? path.trim() : "";
+      if (!candidate) {
+        return candidate;
+      }
+
+      if (/^(?:[a-z]+:)?\\/\\//i.test(candidate) || candidate.startsWith("data:") || candidate.startsWith("blob:")) {
+        return candidate;
+      }
+
+      if (portalBasePath && (candidate === portalBasePath || candidate.startsWith(portalBasePath + "/"))) {
+        return candidate;
+      }
+
+      if (candidate.startsWith("/")) {
+        return portalBasePath + candidate;
+      }
+
+      return candidate;
+    }
 
     function isRecord(value) {
       return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -2760,7 +2806,7 @@ export const renderPortalPage = (options: {
         sessionStorage.removeItem(stateKey);
       } catch {}
 
-      void fetch("/onboard/v1/public/session/clear", {
+      void fetch(resolvePortalPath("/onboard/v1/public/session/clear"), {
         method: "POST",
         credentials: "same-origin",
       }).catch(() => undefined);
@@ -3772,6 +3818,19 @@ ${documentWorkflowClientScript}
       });
   `;
 
+  return scripts;
+};
+
+export const renderPortalPage = (options: {
+  nonce?: string;
+  portalStatus?: PortalStatusViewModel;
+} = {}) => {
+  const body = buildPortalBody(
+    options.portalStatus
+      ? { portalStatus: options.portalStatus }
+      : {}
+  );
+
   return renderShell({
     eyebrow: "",
     title: "KeNIC Registrar Accreditation",
@@ -3780,7 +3839,7 @@ ${documentWorkflowClientScript}
     description:
       "Complete the registrar accreditation application.",
     body,
-    scripts,
+    scriptSrc: "./portal/client.js",
     ...(options.nonce ? { nonce: options.nonce } : {}),
   });
 };
