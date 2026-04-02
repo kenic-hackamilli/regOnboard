@@ -156,6 +156,13 @@ const buildPortalBody = (options: {
           <div id="flowCurrentStepLabel" class="section-kicker">Section A</div>
           <h2 id="flowCurrentStepTitle">General Information</h2>
           <p id="flowCurrentStepDescription">Applicant and contact details.</p>
+          <div id="flowProfileContext" class="flow-profile-context" hidden>
+            <div class="flow-profile-context-copy" aria-live="polite">
+              <span class="flow-profile-context-label">Selected pathway</span>
+              <strong id="flowProfileContextValue">Local Registrar • Kenya</strong>
+            </div>
+            <button id="flowReviewSetupButton" type="button" class="ghost flow-profile-review">Change setup</button>
+          </div>
         </div>
         <div class="flow-header-meta">
           <div id="flowStepCounter" class="flow-step-counter">Step 1 of 8</div>
@@ -545,6 +552,9 @@ export const renderPortalClientScript = () => {
     const flowProgressValue = document.getElementById("flowProgressValue");
     const flowStepTabs = document.getElementById("flowStepTabs");
     const flowHeader = document.querySelector(".flow-header");
+    const flowProfileContext = document.getElementById("flowProfileContext");
+    const flowProfileContextValue = document.getElementById("flowProfileContextValue");
+    const flowReviewSetupButton = document.getElementById("flowReviewSetupButton");
     const phoneFieldDecorators = [
       {
         input: document.querySelector('input[name="telephoneNumber"]'),
@@ -873,6 +883,11 @@ export const renderPortalClientScript = () => {
       return candidate;
     }
 
+    function buildPublicApiPath(path) {
+      const suffix = typeof path === "string" ? path.trim() : "";
+      return resolvePortalPath("/portal/api" + (suffix.startsWith("/") ? suffix : "/" + suffix));
+    }
+
     function fromEntries(entries) {
       const record = {};
       entries.forEach((entry) => {
@@ -981,6 +996,9 @@ export const renderPortalClientScript = () => {
       }
       if (portalReviewSetupButton) {
         portalReviewSetupButton.disabled = inactive;
+      }
+      if (flowReviewSetupButton) {
+        flowReviewSetupButton.disabled = inactive;
       }
 
       syncApplicantTypeControls();
@@ -1227,10 +1245,7 @@ export const renderPortalClientScript = () => {
           : isPortalInactive() || !isOnboardingProfileReady();
       }
       if (portalReviewSetupButton) {
-        portalReviewSetupButton.hidden = !(
-          portalFlowUnlocked
-          && Boolean(portalEntry?.classList.contains("is-compact"))
-        );
+        portalReviewSetupButton.hidden = true;
       }
 
       renderPortalChecklistPreview();
@@ -1249,6 +1264,9 @@ export const renderPortalClientScript = () => {
       }
       if (portalMainExperience) {
         portalMainExperience.hidden = !portalFlowUnlocked;
+      }
+      if (flowProfileContext) {
+        flowProfileContext.hidden = !portalFlowUnlocked;
       }
 
       if (portalFlowUnlocked) {
@@ -1933,7 +1951,7 @@ export const renderPortalClientScript = () => {
     async function refreshPortalOperationalStatus(options = {}) {
       try {
         const nextStatus = normalizePortalOperationalStatus(
-          await request("/onboard/v1/public/portal-status")
+          await request(buildPublicApiPath("/portal-status"))
         );
         const previousStatus = portalOperationalStatus;
         portalOperationalStatus = nextStatus;
@@ -2544,8 +2562,9 @@ export const renderPortalClientScript = () => {
     }
 
     function updateApplicationProfileSummary() {
+      const applicantTypeLabel = getApplicantTypeLabel(applicantTypeInput?.value);
       if (applicationProfileApplicantType) {
-        applicationProfileApplicantType.textContent = getApplicantTypeLabel(applicantTypeInput?.value);
+        applicationProfileApplicantType.textContent = applicantTypeLabel;
       }
 
       const rawCountry = String(countryOfIncorporationInput?.value || "").trim();
@@ -2558,6 +2577,9 @@ export const renderPortalClientScript = () => {
 
       if (applicationProfileCountry) {
         applicationProfileCountry.textContent = countryLabel;
+      }
+      if (flowProfileContextValue) {
+        flowProfileContextValue.textContent = applicantTypeLabel + " • " + countryLabel;
       }
     }
 
@@ -2818,7 +2840,7 @@ export const renderPortalClientScript = () => {
         sessionStorage.removeItem(stateKey);
       } catch {}
 
-      void fetch(resolvePortalPath("/onboard/v1/public/session/clear"), {
+      void fetch(buildPublicApiPath("/session/clear"), {
         method: "POST",
         credentials: "same-origin",
       }).catch(() => undefined);
@@ -3314,7 +3336,7 @@ ${documentWorkflowClientScript}
       }
 
       setActivationState("activating");
-      const result = await request("/onboard/v1/public/applications", {
+      const result = await request(buildPublicApiPath("/applications"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3461,7 +3483,7 @@ ${documentWorkflowClientScript}
         return;
       }
 
-      const responseBundle = await request("/onboard/v1/public/applications/" + state.applicationId);
+      const responseBundle = await request(buildPublicApiPath("/applications/" + state.applicationId));
       const bundle = normalizeBundle(responseBundle);
       const applicationStatus = bundle.application?.status || "";
       const isReadOnly = ["submitted", "in_review", "approved", "rejected"].includes(applicationStatus);
@@ -3539,7 +3561,7 @@ ${documentWorkflowClientScript}
 
         setFlash("Submitting your application. Please wait...");
         setSubmissionFeedback("Submitting your application. Please wait...", "info");
-        await request("/onboard/v1/public/applications/" + state.applicationId + "/submit", {
+        await request(buildPublicApiPath("/applications/" + state.applicationId + "/submit"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildApplicationPayload()),
@@ -3771,6 +3793,11 @@ ${documentWorkflowClientScript}
       });
 
       portalReviewSetupButton?.addEventListener("click", () => {
+        setPortalEntryCompact(false);
+        scrollToProfileSetup();
+      });
+
+      flowReviewSetupButton?.addEventListener("click", () => {
         setPortalEntryCompact(false);
         scrollToProfileSetup();
       });

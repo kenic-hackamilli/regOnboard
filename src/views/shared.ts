@@ -423,8 +423,43 @@ button.country-suggestion-option,
   margin-left: auto;
 }
 .portal-entry.is-compact .profile-selection-bar {
-  padding-top: 0;
-  border-top: 0;
+  display: none;
+}
+.flow-profile-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-top: 6px;
+  padding: 10px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(52,58,64,0.08);
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,249,248,0.96));
+}
+.flow-profile-context[hidden] {
+  display: none !important;
+}
+.flow-profile-context-copy {
+  display: grid;
+  gap: 2px;
+}
+.flow-profile-context-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gray600);
+  font-weight: 800;
+}
+.flow-profile-context-copy strong {
+  font-size: 13px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--gray900);
+}
+.flow-profile-review {
+  margin-left: auto;
+  white-space: nowrap;
 }
 .card {
   background: rgba(255,255,255,0.72);

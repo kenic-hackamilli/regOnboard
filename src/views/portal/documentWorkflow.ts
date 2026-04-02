@@ -136,7 +136,7 @@ export const documentWorkflowClientScript = `
       }
 
       return resolvePortalPath(
-        "/onboard/v1/public/applications/" + state.applicationId + "/documents/" + documentId + "/download"
+        buildPublicApiPath("/applications/" + state.applicationId + "/documents/" + documentId + "/download")
       );
     }
 
@@ -528,7 +528,7 @@ export const documentWorkflowClientScript = `
     }
 
     function buildDocumentUploadPath() {
-      return resolvePortalPath("/onboard/v1/public/applications/" + state.applicationId + "/documents");
+      return buildPublicApiPath("/applications/" + state.applicationId + "/documents");
     }
 
     function shouldRetryDocumentUploadWithBase64(error) {

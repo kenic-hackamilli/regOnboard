@@ -78,6 +78,32 @@ const getApplicantToken = (request: FastifyRequest) => {
 };
 
 export const registerPublicRoutes = async (app: FastifyInstance) => {
+  type PublicRouteHandler = (request: FastifyRequest, reply: FastifyReply) => unknown;
+  const publicApiPaths = (suffix: string) => [
+    `/onboard/v1/public${suffix}`,
+    `/portal/api${suffix}`,
+  ];
+  const registerPublicGet = (suffix: string, handler: PublicRouteHandler) => {
+    publicApiPaths(suffix).forEach((path) => {
+      app.get(path, handler);
+    });
+  };
+  const registerPublicPost = (suffix: string, handler: PublicRouteHandler) => {
+    publicApiPaths(suffix).forEach((path) => {
+      app.post(path, handler);
+    });
+  };
+  const registerPublicPatch = (suffix: string, handler: PublicRouteHandler) => {
+    publicApiPaths(suffix).forEach((path) => {
+      app.patch(path, handler);
+    });
+  };
+  const registerPublicPut = (suffix: string, handler: PublicRouteHandler) => {
+    publicApiPaths(suffix).forEach((path) => {
+      app.put(path, handler);
+    });
+  };
+
   app.get("/portal/client.js", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
     reply.type("application/javascript").send(
@@ -116,16 +142,16 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     return reply.redirect(`/portal?applicationId=${encodeURIComponent(applicationId)}`);
   });
 
-  app.post("/onboard/v1/public/session/clear", async (_request, reply) => {
+  registerPublicPost("/session/clear", async (_request, reply) => {
     clearApplicantSessionCookie(reply);
     return ok(reply, { cleared: true });
   });
 
-  app.get("/onboard/v1/public/portal-status", async (_request, reply) =>
+  registerPublicGet("/portal-status", async (_request, reply) =>
     ok(reply, await getApplicantPortalStatus())
   );
 
-  app.post("/onboard/v1/public/applications", async (request, reply) => {
+  registerPublicPost("/applications", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
     const body = (request.body ?? {}) as {
       applicantType?: string;
@@ -145,39 +171,39 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     });
   });
 
-  app.get("/onboard/v1/public/applications/:id", async (request, reply) => {
+  registerPublicGet("/applications/:id", async (request, reply) => {
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await getApplicationBundle(params.id, token));
   });
 
-  app.patch("/onboard/v1/public/applications/:id/sections/:sectionCode", async (request, reply) => {
+  registerPublicPatch("/applications/:id/sections/:sectionCode", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string; sectionCode: string };
     return ok(reply, await saveSection(params.id, token, params.sectionCode, request.body));
   });
 
-  app.put("/onboard/v1/public/applications/:id/form", async (request, reply) => {
+  registerPublicPut("/applications/:id/form", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await saveApplicationForm(params.id, token, request.body));
   });
 
-  app.get("/onboard/v1/public/applications/:id/checklist", async (request, reply) => {
+  registerPublicGet("/applications/:id/checklist", async (request, reply) => {
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await getChecklist(params.id, token));
   });
 
-  app.get("/onboard/v1/public/applications/:id/documents", async (request, reply) => {
+  registerPublicGet("/applications/:id/documents", async (request, reply) => {
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await listDocuments(params.id, token));
   });
 
-  app.post("/onboard/v1/public/applications/:id/documents", async (request, reply) => {
+  registerPublicPost("/applications/:id/documents", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
@@ -234,7 +260,7 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     return ok(reply, result);
   });
 
-  app.get("/onboard/v1/public/applications/:id/documents/:documentId/download", async (request, reply) => {
+  registerPublicGet("/applications/:id/documents/:documentId/download", async (request, reply) => {
     const token = getApplicantToken(request);
     const params = request.params as { id: string; documentId: string };
     const document = await getDocumentForApplicant(params.id, params.documentId, token);
@@ -242,21 +268,21 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     reply.type(document.mimeType).send(document.content);
   });
 
-  app.post("/onboard/v1/public/applications/:id/resume/request", async (request, reply) => {
+  registerPublicPost("/applications/:id/resume/request", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await issueResumeToken(params.id, token));
   });
 
-  app.post("/onboard/v1/public/applications/:id/submit", async (request, reply) => {
+  registerPublicPost("/applications/:id/submit", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     return ok(reply, await submitApplication(params.id, token, request.body));
   });
 
-  app.get("/onboard/v1/public/applications/:id/status", async (request, reply) => {
+  registerPublicGet("/applications/:id/status", async (request, reply) => {
     const token = getApplicantToken(request);
     const params = request.params as { id: string };
     const bundle = await getApplicationBundle(params.id, token);
