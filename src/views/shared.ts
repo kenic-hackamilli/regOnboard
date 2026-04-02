@@ -17,9 +17,8 @@ a { color: var(--primary); text-decoration: none; }
 .hero {
   display: grid;
   gap: 12px;
-  margin-bottom: 22px;
-  padding: 2px 0 22px;
-  border-bottom: 1px solid rgba(52,58,64,0.08);
+  margin-bottom: 14px;
+  padding: 2px 0 10px;
 }
 .hero h1 {
   margin: 0;
@@ -61,9 +60,8 @@ a { color: var(--primary); text-decoration: none; }
 }
 .portal-entry {
   display: grid;
-  gap: 18px;
-  padding: 6px 0 28px;
-  border-bottom: 1px solid rgba(52,58,64,0.08);
+  gap: 14px;
+  padding: 2px 0 18px;
   transition: opacity 160ms ease, filter 160ms ease;
 }
 .portal-status-banner {
@@ -109,32 +107,6 @@ a { color: var(--primary); text-decoration: none; }
 .portal-entry.is-compact .portal-entry-grid,
 .portal-entry.is-compact .portal-entry-actions {
   display: none;
-}
-.portal-entry-hero {
-  display: grid;
-  gap: 10px;
-}
-.portal-entry-kicker {
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--secondary);
-  font-weight: 800;
-}
-.portal-entry-hero h2 {
-  margin: 0;
-  max-width: 12ch;
-  font-size: clamp(1.6rem, 5vw, 2.2rem);
-  line-height: 1;
-  letter-spacing: -0.05em;
-  font-weight: 750;
-}
-.portal-entry-hero p {
-  margin: 0;
-  max-width: 52ch;
-  font-size: 14px;
-  line-height: 1.72;
-  color: var(--gray700);
 }
 .portal-entry-grid {
   display: grid;
@@ -259,25 +231,18 @@ a { color: var(--primary); text-decoration: none; }
 }
 .profile-setup-panel {
   display: grid;
-  gap: 18px;
-  padding: 18px;
-  border-radius: 28px;
-  border: 1px solid rgba(52,58,64,0.08);
-  background:
-    radial-gradient(circle at top right, rgba(227,6,19,0.05), transparent 34%),
-    radial-gradient(circle at top left, rgba(0,151,57,0.08), transparent 38%),
-    linear-gradient(180deg, rgba(255,255,255,0.96), rgba(250,251,250,0.98));
-  box-shadow: 0 20px 48px rgba(13,50,31,0.06);
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .profile-setup-panel.is-locked {
-  background:
-    radial-gradient(circle at top right, rgba(227,6,19,0.03), transparent 34%),
-    linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,249,250,0.98));
+  background: transparent;
 }
 .portal-entry.is-compact .profile-setup-panel {
-  gap: 12px;
-  padding: 14px 18px;
-  border-radius: 22px;
+  gap: 8px;
+  padding: 0;
 }
 .portal-entry.is-compact .profile-setup-main {
   display: none;
@@ -385,8 +350,8 @@ button.country-suggestion-option,
 }
 .profile-selection-bar {
   display: grid;
-  gap: 10px;
-  padding: 4px 0 0;
+  gap: 6px;
+  padding: 0;
 }
 .profile-selection-kicker {
   font-size: 11px;
@@ -413,53 +378,34 @@ button.country-suggestion-option,
   border-radius: 999px;
   background: rgba(52,58,64,0.18);
 }
-.profile-selection-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-}
-.portal-review-setup {
-  margin-left: auto;
-}
 .portal-entry.is-compact .profile-selection-bar {
   display: none;
 }
 .flow-profile-context {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 16px;
-  margin-top: 6px;
-  padding: 10px 14px;
-  border-radius: 18px;
-  border: 1px solid rgba(52,58,64,0.08);
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,249,248,0.96));
+  align-items: baseline;
+  gap: 6px 12px;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 .flow-profile-context[hidden] {
   display: none !important;
 }
-.flow-profile-context-copy {
-  display: grid;
-  gap: 2px;
-}
 .flow-profile-context-label {
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--gray600);
-  font-weight: 800;
+  font-weight: 600;
 }
-.flow-profile-context-copy strong {
-  font-size: 13px;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
+.flow-profile-context strong {
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: 0;
   color: var(--gray900);
-}
-.flow-profile-review {
-  margin-left: auto;
-  white-space: nowrap;
 }
 .card {
   background: rgba(255,255,255,0.72);
@@ -1054,9 +1000,8 @@ textarea { min-height: 120px; resize: vertical; }
 .flow-header {
   display: grid;
   gap: 12px;
-  margin-top: 22px;
-  padding: 18px 0 0;
-  border-top: 1px solid rgba(52,58,64,0.08);
+  margin-top: 12px;
+  padding: 6px 0 0;
   border-radius: 0;
   border-left: 0;
   border-right: 0;

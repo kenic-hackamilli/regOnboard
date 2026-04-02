@@ -39,12 +39,6 @@ const buildPortalBody = (options: {
     </section>
 
     <section id="portalEntry" class="portal-entry">
-      <div class="portal-entry-hero">
-        <div class="portal-entry-kicker">KeNIC Registrar Accreditation</div>
-        <h2 id="portalEntryTitle">Welcome to registrar accreditation</h2>
-        <p id="portalEntryDescription">Choose the application profile that matches your registrar business.</p>
-      </div>
-
         <div class="profile-setup-panel">
           <div class="profile-setup-main">
             <div class="field-block applicant-type-field">
@@ -96,9 +90,6 @@ const buildPortalBody = (options: {
               <strong id="applicationProfileApplicantType">Local Registrar</strong>
               <span class="profile-selection-separator" aria-hidden="true"></span>
               <strong id="applicationProfileCountry">Kenya</strong>
-            </div>
-            <div class="profile-selection-meta">
-              <button id="portalReviewSetupButton" type="button" class="ghost portal-review-setup" hidden>Review setup</button>
             </div>
           </div>
         </div>
@@ -157,11 +148,8 @@ const buildPortalBody = (options: {
           <h2 id="flowCurrentStepTitle">General Information</h2>
           <p id="flowCurrentStepDescription">Applicant and contact details.</p>
           <div id="flowProfileContext" class="flow-profile-context" hidden>
-            <div class="flow-profile-context-copy" aria-live="polite">
-              <span class="flow-profile-context-label">Selected pathway</span>
-              <strong id="flowProfileContextValue">Local Registrar • Kenya</strong>
-            </div>
-            <button id="flowReviewSetupButton" type="button" class="ghost flow-profile-review">Change setup</button>
+            <span class="flow-profile-context-label">Selected pathway:</span>
+            <strong id="flowProfileContextValue">Local Registrar • Kenya</strong>
           </div>
         </div>
         <div class="flow-header-meta">
@@ -516,14 +504,11 @@ export const renderPortalClientScript = () => {
     const documentUploadFeedback = document.getElementById("documentUploadFeedback");
     const documentRequirementsList = document.getElementById("documentRequirementsList");
     const portalEntry = document.getElementById("portalEntry");
-    const portalEntryTitle = document.getElementById("portalEntryTitle");
-    const portalEntryDescription = document.getElementById("portalEntryDescription");
     const portalChecklistMeta = document.getElementById("portalChecklistMeta");
     const portalChecklistPreview = document.getElementById("portalChecklistPreview");
     const portalOverviewIdentityTitle = document.getElementById("portalOverviewIdentityTitle");
     const portalOverviewIdentityDescription = document.getElementById("portalOverviewIdentityDescription");
     const portalProceedButton = document.getElementById("portalProceedButton");
-    const portalReviewSetupButton = document.getElementById("portalReviewSetupButton");
     const portalMainExperience = document.getElementById("portalMainExperience");
     const portalStatusBanner = document.getElementById("portalStatusBanner");
     const portalStatusTitle = document.getElementById("portalStatusTitle");
@@ -554,7 +539,6 @@ export const renderPortalClientScript = () => {
     const flowHeader = document.querySelector(".flow-header");
     const flowProfileContext = document.getElementById("flowProfileContext");
     const flowProfileContextValue = document.getElementById("flowProfileContextValue");
-    const flowReviewSetupButton = document.getElementById("flowReviewSetupButton");
     const phoneFieldDecorators = [
       {
         input: document.querySelector('input[name="telephoneNumber"]'),
@@ -994,12 +978,6 @@ export const renderPortalClientScript = () => {
       if (countryOfIncorporationInput) {
         countryOfIncorporationInput.disabled = inactive;
       }
-      if (portalReviewSetupButton) {
-        portalReviewSetupButton.disabled = inactive;
-      }
-      if (flowReviewSetupButton) {
-        flowReviewSetupButton.disabled = inactive;
-      }
 
       syncApplicantTypeControls();
       setFormsEnabled(formsEnabled);
@@ -1243,9 +1221,6 @@ export const renderPortalClientScript = () => {
         portalProceedButton.disabled = portalFlowUnlocked
           ? false
           : isPortalInactive() || !isOnboardingProfileReady();
-      }
-      if (portalReviewSetupButton) {
-        portalReviewSetupButton.hidden = true;
       }
 
       renderPortalChecklistPreview();
@@ -3792,16 +3767,6 @@ ${documentWorkflowClientScript}
         });
       });
 
-      portalReviewSetupButton?.addEventListener("click", () => {
-        setPortalEntryCompact(false);
-        scrollToProfileSetup();
-      });
-
-      flowReviewSetupButton?.addEventListener("click", () => {
-        setPortalEntryCompact(false);
-        scrollToProfileSetup();
-      });
-
       portalProceedButton?.addEventListener("click", () => {
         openPortalMainExperience();
       });
@@ -3874,7 +3839,7 @@ export const renderPortalPage = (options: {
     eyebrow: "",
     title: "KeNIC Registrar Accreditation",
     titleHtml:
-      '<span class="hero-title-primary">KeNIC</span> <span class="hero-title-muted">Registrar Accreditation</span>',
+      '<span class="hero-title-primary">KeNIC</span> <span class="hero-title-muted">Registrar</span> <span class="hero-title-secondary">Accreditation</span>',
     description:
       "Complete the registrar accreditation application.",
     body,
