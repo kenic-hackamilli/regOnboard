@@ -1,4 +1,11 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import fs from "node:fs/promises";
+import path from "node:path";
+import type {
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+  RouteShorthandOptions,
+} from "fastify";
 import { env } from "../config/env.js";
 import { portalClientScript } from "../generated/portalClient.generated.js";
 import {
@@ -33,6 +40,16 @@ import { renderPortalClientScript, renderPortalPage } from "../views/portal.js";
 const ok = (reply: FastifyReply, data: unknown) => reply.send({ data, error: null });
 const BASE64_CONTENT_PATTERN =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const PORTAL_ASSET_ROOT = path.resolve(process.cwd(), "assets");
+const PORTAL_ASSET_CONTENT_TYPES: Record<string, string> = {
+  ".avif": "image/avif",
+  ".gif": "image/gif",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+};
 
 const coerceString = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
@@ -57,6 +74,26 @@ const decodeBase64DocumentContent = (value: string) => {
 
   return content;
 };
+
+const resolvePortalAssetPath = (assetPath: string) => {
+  const normalizedAssetPath = String(assetPath || "").replace(/^\/+/, "");
+  const resolvedPath = path.resolve(PORTAL_ASSET_ROOT, normalizedAssetPath);
+
+  if (
+    !normalizedAssetPath
+    || (
+      resolvedPath !== PORTAL_ASSET_ROOT
+      && !resolvedPath.startsWith(`${PORTAL_ASSET_ROOT}${path.sep}`)
+    )
+  ) {
+    throw new ApiError(404, "ASSET_NOT_FOUND");
+  }
+
+  return resolvedPath;
+};
+
+const getPortalAssetContentType = (assetPath: string) =>
+  PORTAL_ASSET_CONTENT_TYPES[path.extname(assetPath).toLowerCase()] || "application/octet-stream";
 
 const getApplicantAuth = (
   request: FastifyRequest,
@@ -90,32 +127,128 @@ const getApplicantAuth = (
 
 export const registerPublicRoutes = async (app: FastifyInstance) => {
   type PublicRouteHandler = (request: FastifyRequest, reply: FastifyReply) => unknown;
+  const portalClientRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 60,
+        timeWindow: "1 minute",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const portalAssetRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 180,
+        timeWindow: "1 minute",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const portalPageRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 30,
+        timeWindow: "1 minute",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const portalResumeRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 12,
+        timeWindow: "10 minutes",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const portalStatusRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 60,
+        timeWindow: "1 minute",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const applicationCreateRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: "10 minutes",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const applicationUploadRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 24,
+        timeWindow: "10 minutes",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const applicationResumeIssueRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 6,
+        timeWindow: "10 minutes",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const applicationSubmitRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 6,
+        timeWindow: "10 minutes",
+      },
+    },
+  } satisfies RouteShorthandOptions;
+  const sessionClearRouteOptions = {
+    config: {
+      rateLimit: {
+        max: 20,
+        timeWindow: "1 minute",
+      },
+    },
+  } satisfies RouteShorthandOptions;
   const publicApiPaths = (suffix: string) => [
     `/onboard/v1/public${suffix}`,
     `/portal/api${suffix}`,
   ];
-  const registerPublicGet = (suffix: string, handler: PublicRouteHandler) => {
+  const registerPublicGet = (
+    suffix: string,
+    handler: PublicRouteHandler,
+    routeOptions?: RouteShorthandOptions
+  ) => {
     publicApiPaths(suffix).forEach((path) => {
-      app.get(path, handler);
+      app.get(path, routeOptions ?? {}, handler);
     });
   };
-  const registerPublicPost = (suffix: string, handler: PublicRouteHandler) => {
+  const registerPublicPost = (
+    suffix: string,
+    handler: PublicRouteHandler,
+    routeOptions?: RouteShorthandOptions
+  ) => {
     publicApiPaths(suffix).forEach((path) => {
-      app.post(path, handler);
+      app.post(path, routeOptions ?? {}, handler);
     });
   };
-  const registerPublicPatch = (suffix: string, handler: PublicRouteHandler) => {
+  const registerPublicPatch = (
+    suffix: string,
+    handler: PublicRouteHandler,
+    routeOptions?: RouteShorthandOptions
+  ) => {
     publicApiPaths(suffix).forEach((path) => {
-      app.patch(path, handler);
+      app.patch(path, routeOptions ?? {}, handler);
     });
   };
-  const registerPublicPut = (suffix: string, handler: PublicRouteHandler) => {
+  const registerPublicPut = (
+    suffix: string,
+    handler: PublicRouteHandler,
+    routeOptions?: RouteShorthandOptions
+  ) => {
     publicApiPaths(suffix).forEach((path) => {
-      app.put(path, handler);
+      app.put(path, routeOptions ?? {}, handler);
     });
   };
 
-  app.get("/portal/client.js", async (_request, reply) => {
+  app.get("/portal/client.js", portalClientRouteOptions, async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
     reply.type("application/javascript").send(
       env.NODE_ENV === "production"
@@ -124,23 +257,65 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     );
   });
 
-  app.get("/portal", async (request, reply) => {
+  app.get("/portal/assets/*", portalAssetRouteOptions, async (request, reply) => {
+    const assetPath = resolvePortalAssetPath(
+      String(((request.params as { "*": string } | undefined)?.["*"]) || "")
+    );
+
+    try {
+      const file = await fs.readFile(assetPath);
+      reply.header("Cache-Control", "public, max-age=86400, immutable");
+      reply.type(getPortalAssetContentType(assetPath)).send(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+        throw new ApiError(404, "ASSET_NOT_FOUND");
+      }
+
+      throw error;
+    }
+  });
+
+  const renderPortalScreen = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    pageKey: "welcome" | "profile" | "requirements" | "application"
+  ) => {
     const query = (request.query ?? {}) as { applicationId?: string; token?: string };
     const applicationId = coerceString(query.applicationId);
     const token = coerceString(query.token);
 
     if (applicationId && token) {
       setApplicantSessionCookie(reply, token);
-      return reply.redirect(`/portal?applicationId=${encodeURIComponent(applicationId)}`);
+      return reply.redirect(`/portal/application?applicationId=${encodeURIComponent(applicationId)}`);
+    }
+
+    if (applicationId && pageKey !== "application") {
+      return reply.redirect(`/portal/application?applicationId=${encodeURIComponent(applicationId)}`);
     }
 
     const portalStatus = await getApplicantPortalStatus();
     const nonce = createAssetNonce();
     applyHtmlSecurityHeaders(reply, nonce);
-    reply.type("text/html").send(renderPortalPage({ nonce, portalStatus }));
-  });
+    reply.type("text/html").send(renderPortalPage({ nonce, pageKey, portalStatus }));
+  };
 
-  app.get("/portal/resume", async (request, reply) => {
+  app.get("/portal", portalPageRouteOptions, async (request, reply) =>
+    renderPortalScreen(request, reply, "welcome")
+  );
+
+  app.get("/portal/profile", portalPageRouteOptions, async (request, reply) =>
+    renderPortalScreen(request, reply, "profile")
+  );
+
+  app.get("/portal/requirements", portalPageRouteOptions, async (request, reply) =>
+    renderPortalScreen(request, reply, "requirements")
+  );
+
+  app.get("/portal/application", portalPageRouteOptions, async (request, reply) =>
+    renderPortalScreen(request, reply, "application")
+  );
+
+  app.get("/portal/resume", portalResumeRouteOptions, async (request, reply) => {
     const query = (request.query ?? {}) as { applicationId?: string; token?: string };
     const applicationId = coerceString(query.applicationId);
     const token = coerceString(query.token);
@@ -150,21 +325,24 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     }
 
     setApplicantSessionCookie(reply, token);
-    return reply.redirect(`/portal?applicationId=${encodeURIComponent(applicationId)}`);
+    return reply.redirect(`/portal/application?applicationId=${encodeURIComponent(applicationId)}`);
   });
 
   registerPublicPost("/session/clear", async (request, reply) => {
     assertTrustedRequestOrigin(request);
     clearApplicantSessionCookie(reply);
     return ok(reply, { cleared: true });
-  });
+  }, sessionClearRouteOptions);
 
-  registerPublicGet("/portal-status", async (_request, reply) =>
-    ok(reply, await getApplicantPortalStatus())
-  );
+  publicApiPaths("/portal-status").forEach((path) => {
+    app.get(path, portalStatusRouteOptions, async (_request, reply) =>
+      ok(reply, await getApplicantPortalStatus())
+    );
+  });
 
   registerPublicPost("/applications", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
+    assertTrustedRequestOrigin(request);
     const body = (request.body ?? {}) as {
       applicantType?: string;
       countryOfIncorporation?: string | null;
@@ -181,7 +359,7 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
       application: result.application,
       checklist: result.checklist,
     });
-  });
+  }, applicationCreateRouteOptions);
 
   registerPublicGet("/applications/:id", async (request, reply) => {
     const auth = getApplicantAuth(request);
@@ -279,7 +457,7 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     });
 
     return ok(reply, result);
-  });
+  }, applicationUploadRouteOptions);
 
   registerPublicGet("/applications/:id/documents/:documentId/download", async (request, reply) => {
     const auth = getApplicantAuth(request);
@@ -297,7 +475,7 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     }
     const params = request.params as { id: string };
     return ok(reply, await issueResumeToken(params.id, auth.token));
-  });
+  }, applicationResumeIssueRouteOptions);
 
   registerPublicPost("/applications/:id/submit", async (request, reply) => {
     await assertApplicantPortalAcceptingWrites();
@@ -307,7 +485,7 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
     }
     const params = request.params as { id: string };
     return ok(reply, await submitApplication(params.id, auth.token, request.body));
-  });
+  }, applicationSubmitRouteOptions);
 
   registerPublicGet("/applications/:id/status", async (request, reply) => {
     const auth = getApplicantAuth(request);

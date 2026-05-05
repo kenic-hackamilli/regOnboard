@@ -10,6 +10,8 @@ const execFileAsync = promisify(execFile);
 const PDF_ACTIVE_CONTENT_PATTERNS = [
   { code: "pdf_javascript", pattern: /\/JavaScript\b/i, message: "PDF contains JavaScript actions." },
   { code: "pdf_js", pattern: /\/JS\b/i, message: "PDF contains JS actions." },
+  { code: "pdf_open_action", pattern: /\/OpenAction\b/i, message: "PDF contains automatic open actions." },
+  { code: "pdf_submit_form", pattern: /\/SubmitForm\b/i, message: "PDF contains form submission actions." },
   { code: "pdf_launch", pattern: /\/Launch\b/i, message: "PDF contains launch actions." },
   { code: "pdf_embedded_file", pattern: /\/EmbeddedFile\b/i, message: "PDF contains embedded files." },
   { code: "pdf_rich_media", pattern: /\/RichMedia\b/i, message: "PDF contains rich media objects." },
@@ -17,6 +19,8 @@ const PDF_ACTIVE_CONTENT_PATTERNS = [
 ] as const;
 
 const BINARY_SCRIPT_PATTERNS = [
+  { code: "embedded_html", pattern: /<!doctype html|<html\b/i, message: "Document contains HTML markup." },
+  { code: "embedded_iframe", pattern: /<iframe\b/i, message: "Document contains embedded iframe markup." },
   { code: "embedded_script_tag", pattern: /<script\b/i, message: "Document contains an embedded script tag." },
   { code: "embedded_php", pattern: /<\?php/i, message: "Document contains embedded PHP markers." },
   { code: "embedded_powershell", pattern: /powershell/i, message: "Document contains PowerShell markers." },

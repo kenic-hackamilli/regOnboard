@@ -1,463 +1,9 @@
-import {
-  COUNTRY_OF_INCORPORATION_MAX_LENGTH,
-  SECTION_FIELD_MAX_LENGTHS,
-} from "../utils/sections.js";
+import { SECTION_FIELD_MAX_LENGTHS } from "../utils/sections.js";
+import { buildPortalBody } from "./portal/body.js";
 import { documentWorkflowClientScript } from "./portal/documentWorkflow.js";
+import { PORTAL_PAGE_PATHS, getPortalPageKey, getPortalPageView } from "./portal/pageConfig.js";
+import type { RenderPortalPageOptions } from "./portal/types.js";
 import { renderShell } from "./shared.js";
-
-const serializeForScript = (value: unknown) =>
-  JSON.stringify(value)
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026");
-
-type PortalStatusViewModel = {
-  portalKey: string;
-  status: "active" | "inactive";
-  reason: string;
-  updatedBy: string;
-  updatedAt: string;
-};
-
-const getDefaultPortalStatus = (): PortalStatusViewModel => ({
-  portalKey: "applicant_portal",
-  status: "active",
-  reason: "",
-  updatedBy: "system",
-  updatedAt: "",
-});
-
-const buildPortalBody = (options: {
-  portalStatus?: PortalStatusViewModel;
-} = {}) => {
-  const body = `
-    <section id="portalStatusBanner" class="portal-status-banner" hidden aria-live="polite">
-      <div class="portal-status-banner-kicker">Application status</div>
-      <strong id="portalStatusTitle">Registrar applications are temporarily unavailable</strong>
-      <p id="portalStatusReason">Update in progress.</p>
-      <div id="portalStatusMeta" class="portal-status-meta"></div>
-    </section>
-
-    <section id="portalEntry" class="portal-entry">
-        <div class="profile-setup-panel">
-          <div class="profile-setup-main">
-            <div class="field-block applicant-type-field">
-              <div class="field-label-row">
-                <span>Application Profile<span class="required-mark">*</span></span>
-              </div>
-              <select id="applicantType" class="visually-hidden-control" tabindex="-1" aria-hidden="true">
-                <option value="local">Local Registrar</option>
-                <option value="international">International Registrar</option>
-              </select>
-              <div class="inline-choice-group" role="radiogroup" aria-label="Registrar type">
-                <button type="button" class="inline-choice" data-applicant-type-option="local" aria-pressed="true">
-                  <span class="inline-choice-indicator" aria-hidden="true"></span>
-                  <span class="inline-choice-label">Local Registrar</span>
-                </button>
-                <button type="button" class="inline-choice" data-applicant-type-option="international" aria-pressed="false">
-                  <span class="inline-choice-indicator" aria-hidden="true"></span>
-                  <span class="inline-choice-label">International Registrar</span>
-                </button>
-              </div>
-              <span id="applicantTypeHint" class="hint">Kenya is used automatically for local applications.</span>
-            </div>
-
-            <label class="profile-country-field">
-              Country of Incorporation
-              <div class="country-search-shell">
-                <span class="country-search-icon" aria-hidden="true"></span>
-                <input
-                  id="countryOfIncorporation"
-                  maxlength="${COUNTRY_OF_INCORPORATION_MAX_LENGTH}"
-                  autocomplete="off"
-                  autocapitalize="words"
-                  spellcheck="false"
-                  role="combobox"
-                  aria-autocomplete="list"
-                  aria-expanded="false"
-                  aria-controls="countrySuggestionList"
-                  placeholder="Search for a country"
-                />
-              </div>
-              <div id="countrySuggestionList" class="country-suggestion-list" role="listbox" hidden></div>
-              <span id="countrySearchFeedback" class="hint" hidden></span>
-            </label>
-          </div>
-
-          <div class="profile-selection-bar">
-            <span class="profile-selection-kicker">Selected pathway</span>
-            <div class="profile-selection-summary" aria-live="polite">
-              <strong id="applicationProfileApplicantType">Local Registrar</strong>
-              <span class="profile-selection-separator" aria-hidden="true"></span>
-              <strong id="applicationProfileCountry">Kenya</strong>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="portal-entry-grid">
-        <article class="portal-entry-card">
-          <div class="portal-entry-card-head">
-            <span class="portal-entry-badge">What you'll provide</span>
-            <span class="portal-entry-meta">Application</span>
-          </div>
-          <div class="portal-entry-list">
-            <div class="portal-entry-item">
-              <span class="portal-entry-item-kicker">Identity</span>
-              <strong id="portalOverviewIdentityTitle">Kenyan applicant and company details</strong>
-              <p id="portalOverviewIdentityDescription">Provide the applicant identity, contact person, Kenyan company registration, and tax information.</p>
-            </div>
-            <div class="portal-entry-item">
-              <span class="portal-entry-item-kicker">Operations</span>
-              <strong>Business and service capability</strong>
-              <p>Describe your domain operations, support processes, billing systems, and security controls.</p>
-            </div>
-            <div class="portal-entry-item">
-              <span class="portal-entry-item-kicker">Technical</span>
-              <strong>Domain administration setup</strong>
-              <p>Capture name servers, billing contacts, and administrative contacts for the registrar workflow.</p>
-            </div>
-            <div class="portal-entry-item">
-              <span class="portal-entry-item-kicker">Review</span>
-              <strong>Legal declaration and documents</strong>
-              <p>Declaration, supporting documents, and final submission.</p>
-            </div>
-          </div>
-        </article>
-
-        <article class="portal-entry-card">
-          <div class="portal-entry-card-head">
-            <span class="portal-entry-badge is-secondary">Required documents</span>
-            <span id="portalChecklistMeta" class="portal-entry-meta">5 documents</span>
-          </div>
-          <div id="portalChecklistPreview" class="portal-entry-list"></div>
-        </article>
-      </div>
-
-      <div class="portal-entry-actions">
-        <button id="portalProceedButton" type="button" class="secondary">Continue</button>
-      </div>
-
-      <div class="flash" id="flashBox"></div>
-    </section>
-
-    <div id="portalMainExperience" class="portal-main-experience" hidden>
-      <section class="flow-header">
-        <div class="flow-header-copy">
-          <div id="flowCurrentStepLabel" class="section-kicker">Section A</div>
-          <h2 id="flowCurrentStepTitle">General Information</h2>
-          <p id="flowCurrentStepDescription">Applicant and contact details.</p>
-          <div id="flowProfileContext" class="flow-profile-context" hidden>
-            <span class="flow-profile-context-label">Selected pathway:</span>
-            <strong id="flowProfileContextValue">Local Registrar • Kenya</strong>
-          </div>
-        </div>
-        <div class="flow-header-meta">
-          <div id="flowStepCounter" class="flow-step-counter">Step 1 of 8</div>
-          <div class="flow-progress-track" aria-hidden="true">
-            <span id="flowProgressValue" class="flow-progress-value"></span>
-          </div>
-        </div>
-        <div id="flowStepTabs" class="flow-step-tabs" aria-label="Application steps"></div>
-      </section>
-
-      <div id="applicationFlow" class="application-flow is-paged">
-      <section class="application-section is-current" data-flow-section="SECTION_A_GENERAL_INFORMATION">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Section A</div>
-            <h2>General Information</h2>
-            <p>Applicant and contact details.</p>
-            <div class="mini-pill pending section-status" data-section-status="SECTION_A_GENERAL_INFORMATION">Not started</div>
-          </div>
-          <div class="section-main">
-            <form data-section="SECTION_A_GENERAL_INFORMATION">
-              <div class="section-group">
-                <h3 class="section-group-title">1. Applicant Information</h3>
-                <div class="row">
-                  <label>Name of Applicant<span class="required-mark">*</span><input name="nameOfApplicant" placeholder="Name of Applicant" /></label>
-                  <label>Company Name<span class="required-mark">*</span><input name="companyName" placeholder="Company Name" /></label>
-                </div>
-                <div class="row">
-                  <label>Company PIN Number / Tax Identification Number (TIN)<span class="required-mark">*</span><input name="companyTin" placeholder="Company PIN Number / Tax Identification Number (TIN)" /><span class="hint">Kenyan applicants: KRA PIN. International applicants: provide your country's equivalent tax identification number.</span></label>
-                  <label>Address of Applicant<span class="required-mark">*</span><textarea name="addressOfApplicant" placeholder="Address of Applicant"></textarea></label>
-                </div>
-                <div class="row">
-                  <label>Company Registration Number<span class="required-mark">*</span><input name="companyRegistrationNumber" placeholder="Company Registration Number" /><span class="hint">International applicants: provide your equivalent company or business registration number.</span></label>
-                  <label>
-                    Telephone Number<span class="required-mark">*</span>
-                    <div class="input-with-prefix">
-                      <span id="telephoneNumberPrefix" class="input-prefix">🇰🇪 +254</span>
-                      <input
-                        name="telephoneNumber"
-                        type="tel"
-                        inputmode="tel"
-                        autocomplete="tel"
-                        maxlength="30"
-                        placeholder="712 345 678"
-                      />
-                    </div>
-                    <span id="telephoneNumberHint" class="hint">For Kenya, enter the number in +254 or 0XXXXXXXXX format.</span>
-                  </label>
-                </div>
-                <div class="row">
-                  <label>Email Address<span class="required-mark">*</span><input name="emailAddress" type="email" maxlength="254" autocomplete="email" placeholder="Email Address" /></label>
-                  <label>Website URL (.KE)<span class="required-mark">*</span><input name="websiteUrl" type="url" inputmode="url" autocapitalize="none" spellcheck="false" autocomplete="url" placeholder="https://example.ke" /></label>
-                </div>
-              </div>
-
-              <div class="section-group">
-                <h3 class="section-group-title">2. Contact Person Information</h3>
-                <div class="row">
-                  <label>Contact Person<span class="required-mark">*</span><input name="contactPerson" placeholder="Contact Person" /></label>
-                  <label>
-                    Contact Person's Telephone Number<span class="required-mark">*</span>
-                    <div class="input-with-prefix">
-                      <span id="contactPersonTelephoneNumberPrefix" class="input-prefix">🇰🇪 +254</span>
-                      <input
-                        name="contactPersonTelephoneNumber"
-                        type="tel"
-                        inputmode="tel"
-                        autocomplete="tel"
-                        maxlength="30"
-                        placeholder="712 345 678"
-                      />
-                    </div>
-                    <span id="contactPersonTelephoneNumberHint" class="hint">Between 7 and 15 digits including the country code where applicable.</span>
-                  </label>
-                  <label>Email Address of Contact Person<span class="required-mark">*</span><input name="contactPersonEmailAddress" type="email" maxlength="254" autocomplete="email" placeholder="Email Address of Contact Person" /></label>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <section class="application-section" data-flow-section="SECTION_B_BUSINESS_INFORMATION">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Section B</div>
-            <h2>Business Information</h2>
-            <p>Operations, support, billing, and security.</p>
-            <div class="mini-pill pending section-status" data-section-status="SECTION_B_BUSINESS_INFORMATION">Not started</div>
-          </div>
-          <div class="section-main">
-            <form data-section="SECTION_B_BUSINESS_INFORMATION" class="stack">
-              <div class="section-group">
-                <label>Previous experience in domain name registration<span class="required-mark">*</span><textarea name="experienceDescription" placeholder="Describe your current reseller operations"></textarea></label>
-                <div class="row">
-                  <label>Number of domains currently under your management (.ke and other)<span class="required-mark">*</span><input name="numberOfDomainsUnderManagement" type="text" inputmode="numeric" pattern="[0-9]*" data-input-kind="whole-number" autocomplete="off" placeholder="0" /></label>
-                  <label>Average number of monthly registrations (.ke and other)<span class="required-mark">*</span><input name="averageMonthlyRegistrations" type="text" inputmode="numeric" pattern="[0-9]*" data-input-kind="whole-number" autocomplete="off" placeholder="0" /></label>
-                </div>
-                <label>Other related services you provide<span class="required-mark">*</span><textarea name="otherRelatedServices" placeholder="Other related services you provide"></textarea></label>
-              </div>
-              <label>Management, communication, and information processing systems<span class="required-mark">*</span><textarea name="managementSystems" placeholder="Include the system link or URL"></textarea></label>
-              <label>Policy compliance checks for registrations<span class="required-mark">*</span><textarea name="policyComplianceSystems" placeholder="Provide detailed information"></textarea></label>
-              <label>Customer enquiries and support services<span class="required-mark">*</span><textarea name="supportSystems" placeholder="Include system link, email address, and phone numbers"></textarea></label>
-              <label>Customer billing systems and procedures<span class="required-mark">*</span><textarea name="billingSystems" placeholder="Include system link"></textarea></label>
-              <label>Customer complaints systems and procedures<span class="required-mark">*</span><textarea name="complaintsSystems" placeholder="Include email address and phone numbers"></textarea></label>
-              <label>Arrangements with domain name resellers<span class="required-mark">*</span><textarea name="resellerArrangements" placeholder="Describe any arrangements with domain name resellers"></textarea></label>
-              <label>Information systems security procedures and capability<span class="required-mark">*</span><textarea name="securityCapability" placeholder="Provide detailed information"></textarea></label>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <section class="application-section" data-flow-section="SECTION_C_DOMAIN_ADMINISTRATION">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Section C</div>
-            <h2>Domain Administration</h2>
-            <p>Nameservers and key contacts.</p>
-            <div class="mini-pill pending section-status" data-section-status="SECTION_C_DOMAIN_ADMINISTRATION">Not started</div>
-          </div>
-          <div class="section-main">
-            <form data-section="SECTION_C_DOMAIN_ADMINISTRATION">
-              <div class="row">
-                <label>NS 1<span class="required-mark">*</span><input name="ns1" autocapitalize="none" spellcheck="false" placeholder="NS 1" /></label>
-                <label>NS 2<span class="required-mark">*</span><input name="ns2" autocapitalize="none" spellcheck="false" placeholder="NS 2" /></label>
-              </div>
-              <div class="row">
-                <label>Admin Contact<span class="required-mark">*</span><input name="adminContact" placeholder="Admin Contact" /></label>
-                <label>Admin Email<span class="required-mark">*</span><input name="adminEmail" type="email" maxlength="254" autocomplete="email" placeholder="Admin Email" /></label>
-              </div>
-              <div class="row">
-                <label>Billing Contact<span class="required-mark">*</span><input name="billingContact" placeholder="Billing Contact" /></label>
-                <label>Billing Email<span class="required-mark">*</span><input name="billingEmail" type="email" maxlength="254" autocomplete="email" placeholder="Billing Email" /></label>
-              </div>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <section class="application-section" data-flow-section="SECTION_D_BUSINESS_DEVELOPMENT">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Section D</div>
-            <h2>Business Development</h2>
-            <p>Target market and growth plans.</p>
-            <div class="mini-pill pending section-status" data-section-status="SECTION_D_BUSINESS_DEVELOPMENT">Not started</div>
-          </div>
-          <div class="section-main">
-            <form data-section="SECTION_D_BUSINESS_DEVELOPMENT" class="stack">
-              <label>What is your target market?<span class="required-mark">*</span><textarea name="targetMarket" placeholder="What is your target market?"></textarea></label>
-              <label>Which Third Level Domains will you be selling?<span class="required-mark">*</span><textarea name="thirdLevelDomains" placeholder="List all Third Level Domains"></textarea></label>
-              <div class="row">
-                <div class="field-block">
-                  <div class="field-label-row">
-                    <span>Do you intend to sell Second Level Domains?<span class="required-mark">*</span></span>
-                  </div>
-                  <select
-                    name="intendsSecondLevelSales"
-                    class="visually-hidden-control"
-                    tabindex="-1"
-                    aria-hidden="true"
-                  >
-                    <option value="false">No</option>
-                    <option value="true">Yes</option>
-                  </select>
-                  <div class="inline-choice-group" role="radiogroup" aria-label="Second Level Domain sales">
-                    <button type="button" class="inline-choice" data-second-level-sales-option="false" aria-pressed="true">
-                      <span class="inline-choice-indicator" aria-hidden="true"></span>
-                      <span class="inline-choice-label">No</span>
-                    </button>
-                    <button type="button" class="inline-choice" data-second-level-sales-option="true" aria-pressed="false">
-                      <span class="inline-choice-indicator" aria-hidden="true"></span>
-                      <span class="inline-choice-label">Yes</span>
-                    </button>
-                  </div>
-                </div>
-                <label>If yes, what strategies do you intend to use?<span class="required-mark">*</span><textarea name="secondLevelSalesStrategy" placeholder="If yes, what strategies do you intend to use?"></textarea></label>
-              </div>
-              <label>Are you currently a Registrar for other domains?<span class="required-mark">*</span><textarea name="otherRegistrarDomains" placeholder="List the domains if applicable"></textarea></label>
-              <label>What volume of .KE registrations do you reasonably project to do per month?<span class="required-mark">*</span><input name="projectedMonthlyKeRegistrations" type="text" inputmode="numeric" pattern="[0-9]*" data-input-kind="whole-number" autocomplete="off" placeholder="0" /></label>
-              <label>What strategies will you use to promote the uptake of .KE domains?<span class="required-mark">*</span><textarea name="promotionStrategy" placeholder="What strategies will you use to promote the uptake of .KE domains?"></textarea></label>
-              <label>Where will you operate your business from?<span class="required-mark">*</span><textarea name="businessLocation" placeholder="Include location, building, and address"></textarea></label>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <section class="application-section" data-flow-section="SECTION_E_LEGAL_STRUCTURE">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Section E</div>
-            <h2>Legal Structure</h2>
-            <p>Ownership and legal disclosures.</p>
-            <div class="mini-pill pending section-status" data-section-status="SECTION_E_LEGAL_STRUCTURE">Not started</div>
-          </div>
-          <div class="section-main">
-            <form data-section="SECTION_E_LEGAL_STRUCTURE" class="stack">
-              <label>Company Ownership<span class="required-mark">*</span><textarea name="companyOwnership" placeholder="Company Ownership"></textarea></label>
-              <label>Have any of the directors, shareholders, or relevant staff of your business entity been convicted of an offence relating to dishonesty?<span class="required-mark">*</span><textarea name="dishonestyConvictionDetails" placeholder="Provide details. If none, state None."></textarea></label>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <section class="application-section" data-flow-section="SECTION_F_DECLARATION">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Section F</div>
-            <h2>Declaration</h2>
-            <p>Review and confirm the declaration.</p>
-            <div class="mini-pill pending section-status" data-section-status="SECTION_F_DECLARATION">Not started</div>
-          </div>
-          <div class="section-main">
-            <div class="declaration-box">
-              <div class="declaration-item">All information contained in this application form and supporting documents is true and accurate to the best of my knowledge.</div>
-              <div class="declaration-item">I have read and understood KeNIC's Registrar Agreement and Published Policies.</div>
-              <div class="declaration-item">I understand KeNIC may carry out due diligence and verify the information provided in this application.</div>
-              <div class="declaration-item">I give KeNIC permission to contact third parties, request additional information where necessary, and verify the information contained in this application.</div>
-              <div class="declaration-item">I waive liability on the part of KeNIC for its actions in verifying the information provided, and on the part of any third parties who provide truthful, material, relevant information as requested.</div>
-            </div>
-            <form data-section="SECTION_F_DECLARATION">
-              <div class="row">
-                <label>Full Legal Name of Applicant<span class="required-mark">*</span><input name="fullLegalNameOfApplicant" placeholder="Full Legal Name of Applicant" /></label>
-                <label>Representative Signature<span class="required-mark">*</span><input name="representativeSignature" placeholder="Representative Signature" /></label>
-              </div>
-              <div class="row">
-                <label>Name Title<span class="required-mark">*</span><input name="nameTitle" placeholder="Name Title" /></label>
-                <label>Contact Person<span class="required-mark">*</span><input name="contactPerson" placeholder="Contact Person" /></label>
-                <label>Date of Signature<span class="required-mark">*</span><input name="dateOfSignature" type="date" /></label>
-              </div>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      <section class="application-section" data-flow-section="SECTION_G_SUPPORTING_DOCUMENTS">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Section G</div>
-            <h2>Supporting Documents</h2>
-            <p>Required uploads.</p>
-          </div>
-          <div class="section-main">
-            <div id="documentUploadFeedback" class="submission-feedback info">Save your application profile first to unlock document uploads.</div>
-            <div id="documentRequirementsList" class="list"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="application-section" data-flow-section="FINAL_REVIEW">
-        <div class="application-shell">
-          <div class="section-rail">
-            <div class="section-step">Final step</div>
-            <h2>Ready to submit</h2>
-            <p>Submit when ready.</p>
-          </div>
-          <div class="section-main">
-            <div class="submission-box">
-              <div id="submissionFeedback" class="submission-feedback" aria-live="polite">Submit when ready.</div>
-              <div class="toolbar">
-                <button id="submitApplicationButton" type="button" disabled>Submit</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-      </div>
-    </div>
-
-    <div id="profileSwitchOverlay" class="profile-switch-overlay" aria-hidden="true" hidden>
-      <div
-        class="profile-switch-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="profileSwitchTitle"
-        aria-describedby="profileSwitchDescription"
-      >
-        <div class="profile-switch-dialog-copy">
-          <div class="section-kicker">Change profile</div>
-          <h3 id="profileSwitchTitle">Start a fresh application?</h3>
-          <p id="profileSwitchDescription">Switching the profile now clears the current application details and uploaded documents so the new pathway can start cleanly.</p>
-        </div>
-        <div class="profile-switch-compare">
-          <div class="profile-switch-state">
-            <span>Current</span>
-            <strong id="profileSwitchCurrentValue">Local Registrar • Kenya</strong>
-          </div>
-          <span class="profile-switch-arrow" aria-hidden="true"></span>
-          <div class="profile-switch-state">
-            <span>New</span>
-            <strong id="profileSwitchNextValue">International Registrar • Brazil</strong>
-          </div>
-        </div>
-        <div class="profile-switch-note">You can keep the current application, or continue with the updated pathway.</div>
-        <div class="profile-switch-actions">
-          <button id="profileSwitchCancel" type="button" class="ghost">Keep current</button>
-          <button id="profileSwitchConfirm" type="button" class="secondary">Start fresh</button>
-        </div>
-      </div>
-    </div>
-    <template id="portalBootData">${serializeForScript({
-      portalStatus: options.portalStatus ?? getDefaultPortalStatus(),
-    })}</template>
-  `;
-
-  return body;
-};
 
 export const renderPortalClientScript = () => {
   const scripts = `
@@ -481,7 +27,18 @@ export const renderPortalClientScript = () => {
     const stateKey = "dotke.onboard.portal";
     const draftStateKeyPrefix = stateKey + ".draft.";
     const pendingDraftStorageKey = draftStateKeyPrefix + "pending";
+    const portalFlashNoticeKey = stateKey + ".flash";
     const uiStateKey = stateKey + ".ui";
+    const PORTAL_PAGE_PATHS = ${JSON.stringify(PORTAL_PAGE_PATHS)};
+    const bootPortalPageKey = (() => {
+      const value = typeof portalBootData.pageKey === "string"
+        ? portalBootData.pageKey.trim().toLowerCase()
+        : "";
+      return Object.prototype.hasOwnProperty.call(PORTAL_PAGE_PATHS, value)
+        ? value
+        : "welcome";
+    })();
+    const portalPageKey = getPortalPageKeyFromLocation() || bootPortalPageKey;
     const fieldMaxLengths = ${JSON.stringify(SECTION_FIELD_MAX_LENGTHS)};
     const initialPortalOperationalStatus = portalBootData.portalStatus || {};
     const UI_STATE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
@@ -499,12 +56,14 @@ export const renderPortalClientScript = () => {
     let flowSectionSyncFrame = null;
     let flashToastTimer = null;
     let lastRememberedSectionCode = "";
-    let committedProfileState = { applicantType: "local", country: "Kenya" };
+    let committedProfileState = { applicantType: "", country: "" };
     let profileSwitchRequest = null;
     let visibleCountrySuggestions = [];
     let activeCountrySuggestionIndex = -1;
     let portalFlowUnlocked = false;
     let portalStatusPollTimer = null;
+    let activeIntroStepKey = portalPageKey === "application" ? "requirements" : portalPageKey;
+    let introTransitionTimer = null;
     let portalOperationalStatus = normalizePortalOperationalStatus(initialPortalOperationalStatus);
 
     const flashBox = document.getElementById("flashBox");
@@ -521,17 +80,44 @@ export const renderPortalClientScript = () => {
     const documentUploadFeedback = document.getElementById("documentUploadFeedback");
     const documentRequirementsList = document.getElementById("documentRequirementsList");
     const portalEntry = document.getElementById("portalEntry");
-    const portalChecklistMeta = document.getElementById("portalChecklistMeta");
     const portalChecklistPreview = document.getElementById("portalChecklistPreview");
-    const portalOverviewIdentityTitle = document.getElementById("portalOverviewIdentityTitle");
     const portalOverviewIdentityDescription = document.getElementById("portalOverviewIdentityDescription");
-    const portalProceedButton = document.getElementById("portalProceedButton");
+    const portalWelcomeStartButton = document.getElementById("portalWelcomeStartButton");
+    const portalProfileBackButton = document.getElementById("portalProfileBackButton");
+    const portalProfileProceedButton = document.getElementById("portalProfileProceedButton");
+    const portalRequirementsBackButton = document.getElementById("portalRequirementsBackButton");
+    const portalRequirementsProceedButton = document.getElementById("portalRequirementsProceedButton");
+    const portalIntroShell = document.getElementById("portalIntroShell");
     const portalMainExperience = document.getElementById("portalMainExperience");
     const portalStatusBanner = document.getElementById("portalStatusBanner");
     const portalStatusTitle = document.getElementById("portalStatusTitle");
     const portalStatusReason = document.getElementById("portalStatusReason");
     const portalStatusMeta = document.getElementById("portalStatusMeta");
+    const portalWelcomeEyebrow = document.getElementById("portalWelcomeEyebrow");
+    const portalWelcomeTitle = document.getElementById("portalWelcomeTitle");
+    const portalWelcomeMessage = document.getElementById("portalWelcomeMessage");
+    const portalWelcomeAutoStatus = document.getElementById("portalWelcomeAutoStatus");
+    const portalLivePathway = document.getElementById("portalLivePathway");
+    const portalLivePathwayNote = document.getElementById("portalLivePathwayNote");
+    const portalLiveDraftStatus = document.getElementById("portalLiveDraftStatus");
+    const portalLiveDraftNote = document.getElementById("portalLiveDraftNote");
+    const portalLiveDocumentStatus = document.getElementById("portalLiveDocumentStatus");
+    const portalLiveDocumentNote = document.getElementById("portalLiveDocumentNote");
+    const portalPathwayFocusTitle = document.getElementById("portalPathwayFocusTitle");
+    const portalPathwayFocusDescription = document.getElementById("portalPathwayFocusDescription");
+    const portalPathwayGuideLocal = document.getElementById("portalPathwayGuideLocal");
+    const portalPathwayGuideInternational = document.getElementById("portalPathwayGuideInternational");
+    const portalJourneyNoteTitle = document.getElementById("portalJourneyNoteTitle");
+    const portalHeroSceneEyebrow = document.getElementById("portalHeroSceneEyebrow");
+    const portalHeroSceneTitle = document.getElementById("portalHeroSceneTitle");
+    const portalHeroSceneDescription = document.getElementById("portalHeroSceneDescription");
+    const portalHeroPathway = document.getElementById("portalHeroPathway");
+    const portalHeroJourneyState = document.getElementById("portalHeroJourneyState");
+    const portalHeroDocumentState = document.getElementById("portalHeroDocumentState");
+    const portalHeroProgressBar = document.getElementById("portalHeroProgressBar");
+    const portalHeroProgressValue = document.getElementById("portalHeroProgressValue");
     const profileSetupPanel = document.querySelector(".profile-setup-panel");
+    const profileCountryField = document.querySelector(".profile-country-field");
     const applicantTypeInput = document.getElementById("applicantType");
     const applicantTypeHint = document.getElementById("applicantTypeHint");
     const applicantTypeOptionButtons = Array.from(
@@ -573,6 +159,8 @@ export const renderPortalClientScript = () => {
       },
     ];
     const flowSectionNodes = Array.from(document.querySelectorAll("[data-flow-section]"));
+    const portalIntroStepButtons = Array.from(document.querySelectorAll("[data-intro-step-target]"));
+    const portalIntroStepPanels = Array.from(document.querySelectorAll("[data-intro-step-panel]"));
     const flowSectionCodes = flowSectionNodes
       .map((node) => node.getAttribute("data-flow-section"))
       .filter((sectionCode) => typeof sectionCode === "string" && sectionCode);
@@ -623,7 +211,7 @@ export const renderPortalClientScript = () => {
     const PORTAL_ENTRY_PREVIEW = {
       local: {
         selectionHint:
-          "You selected the Kenyan registrar pathway. This application is for registrars incorporated in Kenya.",
+          "This pathway is for registrars incorporated in Kenya.",
         continueLabel: "Continue",
         overviewIdentityTitle: "Kenyan applicant and company details",
         overviewIdentityDescription:
@@ -653,7 +241,7 @@ export const renderPortalClientScript = () => {
       },
       international: {
         selectionHint:
-          "You selected the international registrar pathway. This application is for registrars incorporated outside Kenya.",
+          "This pathway is for registrars incorporated outside Kenya.",
         continueLabel: "Continue",
         overviewIdentityTitle: "Applicant and incorporation details",
         overviewIdentityDescription:
@@ -681,6 +269,99 @@ export const renderPortalClientScript = () => {
           },
         ],
       },
+    };
+    const INTRO_STEP_META = {
+      welcome: {
+        title: "Welcome",
+        progressTitle: "Welcome to the accreditation platform.",
+        progressDescription: "Start with a clean welcome screen before pathway selection and final readiness.",
+        actionTitle: "Start here",
+        actionMessage: "Move into the onboarding process when you are ready.",
+        primaryLabel: "Start process",
+      },
+      profile: {
+        title: "Pathway",
+        progressTitle: "Choose the registrar pathway.",
+        progressDescription: "Select local or international. International applicants must also choose the country of incorporation.",
+        actionTitle: "Pathway selection",
+        actionMessage: "This decision shapes the form and document guidance that follow.",
+        primaryLabel: "Continue",
+      },
+      requirements: {
+        title: "Preview",
+        progressTitle: "See what the application will ask for.",
+        progressDescription: "Review the details and supporting documents needed before the live workspace opens.",
+        actionTitle: "What you'll need",
+        actionMessage: "We'll ask for company details, operational and technical information, legal details, and supporting documents.",
+        primaryLabel: "Start application",
+      },
+    };
+    const INTRO_STEP_ORDER = ["welcome", "profile", "requirements"];
+    const PORTAL_AMBIENT_SCENES = {
+      morning: [
+        {
+          imagePath: "images/morning/elephant.webp",
+          eyebrow: "Morning welcome",
+          title: "Start with a calm, guided accreditation pathway.",
+          description: "Choose the right applicant profile first and the portal will tailor the form, checklist, and document guidance around it.",
+          alt: "Elephants walking through a Kenyan wildlife landscape.",
+        },
+        {
+          imagePath: "images/morning/bigElephant.webp",
+          eyebrow: "Morning welcome",
+          title: "Prepare the international pathway with confidence.",
+          description: "The portal keeps local trust cues while adapting the guidance, document checklist, and phone formatting for your jurisdiction.",
+          alt: "A large elephant in a Kenyan wildlife landscape.",
+        },
+      ],
+      day: [
+        {
+          imagePath: "images/morning/zebras.webp",
+          eyebrow: "Application momentum",
+          title: "Move through the registrar journey with clear progress signals.",
+          description: "Sections, document readiness, and submission status stay visible as the application takes shape.",
+          alt: "Zebras crossing water in a Kenyan wildlife scene.",
+        },
+        {
+          imagePath: "images/morning/cheetah.webp",
+          eyebrow: "Application momentum",
+          title: "Keep every requirement moving in one coordinated flow.",
+          description: "Technical, legal, and document review expectations stay aligned so international applicants do not lose context.",
+          alt: "A cheetah in a Kenyan wildlife scene.",
+        },
+      ],
+      evening: [
+        {
+          imagePath: "images/evening/savana.webp",
+          eyebrow: "Structured review",
+          title: "Keep the experience premium without distracting from the work.",
+          description: "Wildlife imagery adds atmosphere while the core actions stay legible, direct, and compliance-focused.",
+          alt: "An evening savannah scene in Kenya.",
+        },
+        {
+          imagePath: "images/evening/rhino.webp",
+          eyebrow: "Structured review",
+          title: "Present every requirement in a deliberate, professional rhythm.",
+          description: "The portal keeps the applicant oriented from profile selection through document readiness and final submission.",
+          alt: "A rhino in an evening Kenyan wildlife landscape.",
+        },
+      ],
+      night: [
+        {
+          imagePath: "images/night/birdsBuffalo.webp",
+          eyebrow: "Resume ready",
+          title: "Return later and continue from your saved draft.",
+          description: "This portal is designed for serious applications that may span multiple sessions, reviews, and supporting uploads.",
+          alt: "A buffalo with birds in a Kenyan wildlife setting.",
+        },
+        {
+          imagePath: "images/night/antelopes.webp",
+          eyebrow: "Resume ready",
+          title: "Stay oriented even when the application continues over time.",
+          description: "The welcome surface, pathway summary, and live checklist keep applicants grounded whenever they come back.",
+          alt: "Antelopes in a Kenyan wildlife scene.",
+        },
+      ],
     };
 
     const COUNTRY_PROFILES = {
@@ -893,6 +574,87 @@ export const renderPortalClientScript = () => {
       return resolvePortalPath("/portal/api" + (suffix.startsWith("/") ? suffix : "/" + suffix));
     }
 
+    function buildPortalAssetPath(path) {
+      const suffix = typeof path === "string" ? path.trim().replace(/^\\/+/, "") : "";
+      return resolvePortalPath("/portal/assets/" + suffix);
+    }
+
+    function buildPortalPagePath(pageKey) {
+      const pagePath = PORTAL_PAGE_PATHS[pageKey] || PORTAL_PAGE_PATHS.welcome;
+      return resolvePortalPath(pagePath);
+    }
+
+    function getPortalPageKeyFromLocation(pathname = window.location.pathname) {
+      const normalizedPath = resolvePortalPath(String(pathname || ""));
+
+      if (normalizedPath === buildPortalPagePath("profile")) {
+        return "profile";
+      }
+
+      if (normalizedPath === buildPortalPagePath("requirements")) {
+        return "requirements";
+      }
+
+      if (normalizedPath === buildPortalPagePath("application")) {
+        return "application";
+      }
+
+      return "welcome";
+    }
+
+    function syncPortalIntroHistory(stepKey, options = {}) {
+      if (!isIntroStepKey(stepKey) || portalPageKey === "application" || state.applicationId) {
+        return false;
+      }
+
+      const nextPath = buildPortalPagePath(stepKey);
+      if (!nextPath) {
+        return false;
+      }
+
+      const currentPath = resolvePortalPath(String(window.location.pathname || ""));
+      const currentState = isRecord(window.history.state) ? window.history.state : {};
+      const nextState = {
+        ...currentState,
+        portalIntroStep: stepKey,
+      };
+      const historyMethod = options.mode === "replace" ? "replaceState" : "pushState";
+
+      if (currentPath === nextPath && currentState.portalIntroStep === stepKey && options.force !== true) {
+        return false;
+      }
+
+      window.history[historyMethod](nextState, document.title, nextPath);
+      return true;
+    }
+
+    function navigateToPortalPage(pageKey, options = {}) {
+      const nextPath = buildPortalPagePath(pageKey);
+      if (!nextPath) {
+        return false;
+      }
+
+      const currentPath = resolvePortalPath(String(window.location.pathname || ""));
+      if (currentPath === nextPath) {
+        setPortalIntroLoading(false);
+        if (isIntroStepKey(pageKey)) {
+          setActiveIntroStep(pageKey, { scrollIntoView: false });
+        }
+        return false;
+      }
+
+      persistLocalDraftNow();
+      rememberPortalViewport();
+      setPortalIntroLoading(options.loading !== false);
+
+      const delay = Number.isFinite(options.delay) ? Math.max(0, options.delay) : 120;
+      window.setTimeout(() => {
+        window.location.assign(nextPath);
+      }, delay);
+
+      return true;
+    }
+
     function fromEntries(entries) {
       const record = {};
       entries.forEach((entry) => {
@@ -1005,6 +767,7 @@ export const renderPortalClientScript = () => {
       syncPortalEntryPreview();
       syncDocumentUploadFeedback(latestBundle);
       syncSubmissionFeedback(latestBundle);
+      syncPortalExperienceSurface();
     }
 
     function normalizeBundle(bundle) {
@@ -1152,17 +915,525 @@ export const renderPortalClientScript = () => {
       return FLOW_TAB_LABELS[sectionCode] || getFlowSectionMeta(sectionCode).title || sectionCode;
     }
 
+    function normalizeApplicantTypeSelection(value) {
+      return value === "international"
+        ? "international"
+        : value === "local"
+          ? "local"
+          : "";
+    }
+
     function getPortalPreviewProfileKey() {
-      return applicantTypeInput?.value === "international" ? "international" : "local";
+      return normalizeApplicantTypeSelection(applicantTypeInput?.value) === "international"
+        ? "international"
+        : "local";
     }
 
     function getPortalPreviewConfig() {
       return PORTAL_ENTRY_PREVIEW[getPortalPreviewProfileKey()] || PORTAL_ENTRY_PREVIEW.local;
     }
 
+    function isIntroStepKey(stepKey) {
+      return INTRO_STEP_ORDER.includes(stepKey);
+    }
+
+    function getIntroStepMeta(stepKey = activeIntroStepKey) {
+      const resolvedStepKey = isIntroStepKey(stepKey) ? stepKey : getDefaultIntroStepKeyForPage();
+      return INTRO_STEP_META[resolvedStepKey] || INTRO_STEP_META.welcome;
+    }
+
+    function getIntroStepIndex(stepKey = activeIntroStepKey) {
+      const resolvedStepKey = isIntroStepKey(stepKey) ? stepKey : getDefaultIntroStepKeyForPage();
+      return INTRO_STEP_ORDER.indexOf(resolvedStepKey);
+    }
+
+    function getNextIntroStepKey(stepKey = activeIntroStepKey) {
+      const currentIndex = getIntroStepIndex(stepKey);
+      return currentIndex >= 0 && currentIndex < INTRO_STEP_ORDER.length - 1
+        ? INTRO_STEP_ORDER[currentIndex + 1]
+        : "";
+    }
+
+    function getPreviousIntroStepKey(stepKey = activeIntroStepKey) {
+      const currentIndex = getIntroStepIndex(stepKey);
+      return currentIndex > 0 ? INTRO_STEP_ORDER[currentIndex - 1] : "";
+    }
+
+    function getDefaultIntroStepKeyForPage() {
+      return portalPageKey === "application" ? "requirements" : portalPageKey;
+    }
+
+    function getRenderableIntroStepKey(stepKey = activeIntroStepKey) {
+      const fallbackStepKey = getDefaultIntroStepKeyForPage();
+      return isIntroStepKey(stepKey) ? stepKey : fallbackStepKey;
+    }
+
+    function setPortalIntroLoading(loading) {
+      if (loading) {
+        clearWelcomeAutoAdvance();
+      }
+      portalEntry?.classList.toggle("is-loading-intro", Boolean(loading));
+      portalWelcomeStartButton?.classList.toggle("is-loading", Boolean(loading));
+      portalProfileProceedButton?.classList.toggle("is-loading", Boolean(loading));
+      portalProfileBackButton?.classList.toggle("is-loading", Boolean(loading));
+    }
+
+    function clearWelcomeAutoAdvance() {}
+
+    function syncWelcomeAutoAdvance() {
+      if (!portalWelcomeAutoStatus) {
+        return;
+      }
+
+      if (isPortalInactive() && !state.applicationId) {
+        portalWelcomeAutoStatus.textContent = "Applications will reopen here once the portal is active again.";
+        return;
+      }
+
+      if (state.applicationId) {
+        portalWelcomeAutoStatus.textContent = "Your saved draft is ready whenever you want to continue.";
+        return;
+      }
+
+      portalWelcomeAutoStatus.textContent = "Start the process when you are ready.";
+    }
+
+    function setActiveIntroStep(stepKey, options = {}) {
+      const nextStepKey = getRenderableIntroStepKey(stepKey);
+      activeIntroStepKey = nextStepKey;
+      if (portalIntroShell) {
+        portalIntroShell.classList.remove(
+          "portal-intro-shell--welcome",
+          "portal-intro-shell--profile",
+          "portal-intro-shell--requirements"
+        );
+        portalIntroShell.classList.add("portal-intro-shell--" + nextStepKey);
+      }
+
+      portalIntroStepButtons.forEach((button) => {
+        const isCurrent = button.getAttribute("data-intro-step-target") === nextStepKey;
+        button.classList.toggle("is-current", isCurrent);
+        button.setAttribute("aria-selected", isCurrent ? "true" : "false");
+        button.setAttribute("tabindex", isCurrent ? "0" : "-1");
+      });
+
+      portalIntroStepPanels.forEach((panel) => {
+        const isCurrent = panel.getAttribute("data-intro-step-panel") === nextStepKey;
+        panel.classList.toggle("is-current", isCurrent);
+        panel.hidden = !isCurrent;
+      });
+
+      syncPortalEntryPreview();
+
+      if (options.scrollIntoView && !portalFlowUnlocked) {
+        portalIntroShell?.scrollIntoView({
+          behavior: options.smooth === false ? "auto" : "smooth",
+          block: "start",
+        });
+      }
+    }
+
+    async function transitionIntroStep(stepKey, options = {}) {
+      const nextStepKey = getRenderableIntroStepKey(stepKey);
+
+      if (portalEntry?.classList.contains("is-loading-intro")) {
+        return false;
+      }
+
+      if (nextStepKey === activeIntroStepKey) {
+        setActiveIntroStep(nextStepKey, options);
+        return true;
+      }
+
+      setPortalIntroLoading(true);
+
+      await new Promise((resolve) => {
+        introTransitionTimer = window.setTimeout(resolve, 180);
+      });
+
+      introTransitionTimer = null;
+      setActiveIntroStep(nextStepKey, options);
+      if (options.history !== false) {
+        syncPortalIntroHistory(nextStepKey, {
+          mode: options.historyMode === "replace" ? "replace" : "push",
+        });
+      }
+      setPortalIntroLoading(false);
+      return true;
+    }
+
+    function getPortalGreeting() {
+      const hour = new Date().getHours();
+
+      if (hour < 12) {
+        return "Good morning";
+      }
+
+      if (hour < 17) {
+        return "Good afternoon";
+      }
+
+      if (hour < 21) {
+        return "Good evening";
+      }
+
+      return "Welcome back";
+    }
+
+    function getPortalAmbientScenePeriod() {
+      const hour = new Date().getHours();
+
+      if (hour < 11) {
+        return "morning";
+      }
+
+      if (hour < 17) {
+        return "day";
+      }
+
+      if (hour < 20) {
+        return "evening";
+      }
+
+      return "night";
+    }
+
+    function getPortalAmbientSceneFallback() {
+      return {
+        imagePath: "images/morning/elephant.webp",
+        eyebrow: "Portal view",
+        title: "Guided accreditation flow",
+        description: "Choose the right pathway and move through the application with clear progress indicators.",
+        alt: "Kenyan wildlife landscape.",
+      };
+    }
+
+    function getPortalAmbientSceneOptions() {
+      return PORTAL_AMBIENT_SCENES[getPortalAmbientScenePeriod()]
+        || PORTAL_AMBIENT_SCENES.day
+        || [];
+    }
+
+    function getPortalAmbientScene() {
+      const sceneOptions = getPortalAmbientSceneOptions();
+      const sceneIndex = applicantTypeInput?.value === "international"
+        ? Math.min(1, Math.max(0, sceneOptions.length - 1))
+        : 0;
+
+      return sceneOptions[sceneIndex] || sceneOptions[0] || getPortalAmbientSceneFallback();
+    }
+
+    function getPortalAmbientBackdropScene() {
+      const sceneOptions = getPortalAmbientSceneOptions();
+
+      // Keep the shared portal backdrop steady while the pathway-specific copy updates.
+      return sceneOptions[0] || getPortalAmbientSceneFallback();
+    }
+
+    function getPortalCountryLabel() {
+      const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
+      const rawCountry = getRawCountrySelection();
+      const resolvedCountry = resolveCountryOption(rawCountry);
+
+      if (applicantType === "local") {
+        return "Kenya";
+      }
+
+      if (!applicantType) {
+        return "Choose registrar type first";
+      }
+
+      if (isBlockedInternationalCountry(rawCountry)) {
+        return "Choose another country";
+      }
+
+      return resolvedCountry || rawCountry || "Select country";
+    }
+
+    function getPortalProgressPercent() {
+      const progress = Number(latestBundle?.checklist?.progressPercent ?? 0);
+      return Number.isFinite(progress)
+        ? Math.max(0, Math.min(100, Math.round(progress)))
+        : 0;
+    }
+
+    function escapePortalText(value) {
+      return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function formatPortalWelcomeTitle(title) {
+      const normalizedTitle = String(title || "").trim();
+
+      if (normalizedTitle === "Welcome to KeNIC Registrar Accreditation Platform.") {
+        return '<span class="portal-title-primary">Welcome to KeNIC</span> <span class="portal-title-secondary">Registrar Accreditation Platform.</span>';
+      }
+
+      if (normalizedTitle === "Welcome to KeNIC.") {
+        return '<span class="portal-title-primary">Welcome</span> <span class="portal-title-secondary">to KeNIC.</span>';
+      }
+
+      if (normalizedTitle === "Welcome back.") {
+        return '<span class="portal-title-primary">Welcome</span> <span class="portal-title-secondary">back.</span>';
+      }
+
+      if (normalizedTitle === "Your draft is ready.") {
+        return '<span class="portal-title-primary">Your draft</span> <span class="portal-title-secondary">is ready.</span>';
+      }
+
+      if (normalizedTitle === "Applications are paused.") {
+        return '<span class="portal-title-primary">Applications</span> <span class="portal-title-secondary">are paused.</span>';
+      }
+
+      return escapePortalText(normalizedTitle);
+    }
+
+    function setPortalWelcomeTitle(title) {
+      if (!(portalWelcomeTitle instanceof HTMLElement)) {
+        return;
+      }
+
+      portalWelcomeTitle.innerHTML = formatPortalWelcomeTitle(title);
+    }
+
+    function syncPortalExperienceSurface() {
+      const preview = getPortalPreviewConfig();
+      const greeting = getPortalGreeting();
+      const applicantTypeLabel = getApplicantTypeLabel(applicantTypeInput?.value);
+      const countryLabel = getPortalCountryLabel();
+      const profileLabel = applicantTypeLabel + " • " + countryLabel;
+      const progressPercent = getPortalProgressPercent();
+      const hasDraft = Boolean(state.applicationId);
+      const scene = getPortalAmbientScene();
+      const ambientBackdropScene = getPortalAmbientBackdropScene();
+      const sceneUrl = buildPortalAssetPath(ambientBackdropScene.imagePath);
+      const checklistDocuments = getChecklistDocuments(latestBundle);
+      const requiredDocuments = checklistDocuments.length
+        ? checklistDocuments.filter((document) => document.isRequired)
+        : [];
+      const uploadedRequiredDocuments = requiredDocuments.filter((document) => document.uploaded).length;
+
+      let welcomeEyebrow = "KeNIC accreditation";
+      let welcomeTitle = "Welcome to KeNIC Registrar Accreditation Platform.";
+      let welcomeMessage = "";
+      let draftStatusValue = "Ready to start";
+      let draftStatusNote = "Progress is saved in this browser while you work.";
+      let documentStatusValue = preview.documents.length + " required documents";
+      let documentStatusNote = "Requirements adapt to the selected pathway.";
+      let heroJourneyValue = "Guided 8-step flow";
+      let heroProgressLabel = "Choose a pathway to continue";
+      let heroProgressWidth = isOnboardingProfileReady() ? 18 : 6;
+      let sceneEyebrow = scene.eyebrow;
+      let sceneTitle = scene.title;
+      let sceneDescription = scene.description;
+
+      if (requiredDocuments.length) {
+        documentStatusValue = uploadedRequiredDocuments > 0
+          ? uploadedRequiredDocuments + " of " + requiredDocuments.length + " uploaded"
+          : requiredDocuments.length + " required documents";
+        documentStatusNote = uploadedRequiredDocuments === requiredDocuments.length
+          ? "All required supporting documents are in place."
+          : "Upload each required document before final submission.";
+      }
+
+      const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
+
+      if (applicantType === "local") {
+        if (portalLivePathwayNote) {
+          portalLivePathwayNote.textContent = "Kenya is used automatically for local applications.";
+        }
+      } else if (applicantType === "international") {
+        const rawCountry = getRawCountrySelection();
+        const resolvedCountry = resolveCountryOption(rawCountry);
+        if (portalLivePathwayNote) {
+          portalLivePathwayNote.textContent = resolvedCountry
+            ? "Country-specific phone and submission guidance adjusts automatically."
+            : "Choose the country of incorporation from the suggested list to continue.";
+        }
+      } else if (portalLivePathwayNote) {
+        portalLivePathwayNote.textContent = "Choose the registrar type to tailor the application guidance.";
+      }
+
+      if (isPortalInactive() && !hasDraft) {
+        welcomeEyebrow = "Portal update";
+        draftStatusValue = "Temporarily paused";
+        draftStatusNote = "Please try again once the portal is re-opened.";
+        heroProgressLabel = "Portal temporarily paused";
+        heroProgressWidth = 0;
+        sceneEyebrow = "Portal update";
+        sceneTitle = "Applications are paused while the portal is updated.";
+        sceneDescription = getPortalInactiveMessage();
+      } else if (hasDraft) {
+        welcomeEyebrow = "Welcome back";
+        draftStatusValue = progressPercent > 0 ? progressPercent + "% complete" : "Draft active";
+        draftStatusNote = "This browser can reopen your in-progress application while the session remains active.";
+        heroJourneyValue = progressPercent > 0 ? progressPercent + "% complete" : "Draft active";
+        heroProgressLabel = progressPercent > 0 ? progressPercent + "% ready for review" : "Draft started";
+        heroProgressWidth = Math.max(progressPercent, 18);
+        sceneEyebrow = "Welcome back";
+        sceneTitle = "Your accreditation draft is ready to continue.";
+        sceneDescription =
+          "Return to the guided sections, keep documents moving, and track submission readiness from one place.";
+      } else if (applicantTypeInput?.value === "international") {
+        welcomeEyebrow = greeting;
+        draftStatusValue = isOnboardingProfileReady() ? "Profile ready" : "Choose country";
+        draftStatusNote = isOnboardingProfileReady()
+          ? "Continue to open the guided application flow."
+          : "Select the country of incorporation to tailor the application.";
+        heroJourneyValue = isOnboardingProfileReady() ? "Guided flow ready" : "Awaiting country selection";
+        heroProgressLabel = isOnboardingProfileReady() ? "Profile confirmed" : "Choose a country to continue";
+        heroProgressWidth = isOnboardingProfileReady() ? 18 : 6;
+      } else if (portalFlowUnlocked || isOnboardingProfileReady()) {
+        welcomeEyebrow = greeting;
+        draftStatusValue = "Profile ready";
+        draftStatusNote = "Continue to open the guided application flow.";
+        heroJourneyValue = portalFlowUnlocked ? "Flow open" : "Guided flow ready";
+        heroProgressLabel = "Profile confirmed";
+        heroProgressWidth = portalFlowUnlocked ? 28 : 18;
+      } else {
+        welcomeEyebrow = greeting;
+      }
+
+      if (portalWelcomeEyebrow) {
+        portalWelcomeEyebrow.textContent = welcomeEyebrow;
+      }
+      setPortalWelcomeTitle(welcomeTitle);
+      if (portalWelcomeMessage) {
+        portalWelcomeMessage.textContent = welcomeMessage;
+      }
+      if (portalLivePathway) {
+        portalLivePathway.textContent = profileLabel;
+      }
+      if (portalLiveDraftStatus) {
+        portalLiveDraftStatus.textContent = draftStatusValue;
+      }
+      if (portalLiveDraftNote) {
+        portalLiveDraftNote.textContent = draftStatusNote;
+      }
+      if (portalLiveDocumentStatus) {
+        portalLiveDocumentStatus.textContent = documentStatusValue;
+      }
+      if (portalLiveDocumentNote) {
+        portalLiveDocumentNote.textContent = documentStatusNote;
+      }
+      if (portalPathwayGuideLocal) {
+        portalPathwayGuideLocal.dataset.selected = applicantTypeInput?.value === "international" ? "false" : "true";
+      }
+      if (portalPathwayGuideInternational) {
+        portalPathwayGuideInternational.dataset.selected = applicantTypeInput?.value === "international" ? "true" : "false";
+      }
+      if (portalPathwayFocusTitle) {
+        portalPathwayFocusTitle.textContent = applicantTypeInput?.value === "international"
+          ? "International pathway selected"
+          : "Local pathway selected";
+      }
+      if (portalPathwayFocusDescription) {
+        portalPathwayFocusDescription.textContent = applicantTypeInput?.value === "international"
+          ? (isOnboardingProfileReady()
+            ? "Country-aware guidance is ready, and the portal will adapt document expectations around the selected jurisdiction."
+            : "Choose the country of incorporation so the portal can tailor phone guidance and supporting document language.")
+          : "This flow assumes the applying registrar is incorporated in Kenya.";
+      }
+      if (portalJourneyNoteTitle) {
+        portalJourneyNoteTitle.textContent = hasDraft
+          ? "Your saved application is ready."
+          : "Here's what the application will ask for.";
+      }
+      if (portalHeroPathway) {
+        portalHeroPathway.textContent = profileLabel;
+      }
+      if (portalHeroJourneyState) {
+        portalHeroJourneyState.textContent = heroJourneyValue;
+      }
+      if (portalHeroDocumentState) {
+        portalHeroDocumentState.textContent = requiredDocuments.length
+          ? uploadedRequiredDocuments + " of " + requiredDocuments.length + " uploaded"
+          : preview.documents.length + " required";
+      }
+      if (portalHeroProgressBar) {
+        portalHeroProgressBar.style.width = heroProgressWidth + "%";
+      }
+      if (portalHeroProgressValue) {
+        portalHeroProgressValue.textContent = heroProgressLabel;
+      }
+      if (portalHeroSceneEyebrow) {
+        portalHeroSceneEyebrow.textContent = sceneEyebrow;
+      }
+      if (portalHeroSceneTitle) {
+        portalHeroSceneTitle.textContent = sceneTitle;
+      }
+      if (portalHeroSceneDescription) {
+        portalHeroSceneDescription.textContent = sceneDescription;
+      }
+      document.documentElement.style.setProperty("--portal-ambient-image", 'url("' + sceneUrl + '")');
+    }
+
+    function syncPortalIntroState() {
+      const introMeta = getIntroStepMeta();
+      const introLoading = portalEntry?.classList.contains("is-loading-intro");
+      const isFirstStep = getIntroStepIndex() <= 0;
+      const isProfileStep = activeIntroStepKey === "profile";
+      const isRequirementsStep = activeIntroStepKey === "requirements";
+      const introProgressLabels = {
+        welcome: "Welcome",
+        profile: "Profile selection",
+        requirements: "Application preview",
+      };
+      const introProgressWidths = {
+        welcome: 18,
+        profile: 56,
+        requirements: 88,
+      };
+
+      if (portalWelcomeStartButton instanceof HTMLButtonElement) {
+        portalWelcomeStartButton.disabled = Boolean(introLoading);
+      }
+      if (portalProfileBackButton instanceof HTMLButtonElement) {
+        portalProfileBackButton.disabled = Boolean(introLoading) || portalFlowUnlocked || isFirstStep;
+      }
+      if (portalRequirementsBackButton instanceof HTMLButtonElement) {
+        portalRequirementsBackButton.disabled = Boolean(introLoading) || portalFlowUnlocked || isFirstStep;
+      }
+      if (portalProfileProceedButton instanceof HTMLButtonElement) {
+        const profileNeedsSelection = isProfileStep && !isOnboardingProfileReady();
+        portalProfileProceedButton.textContent = "Continue";
+        portalProfileProceedButton.disabled = Boolean(introLoading)
+          || (
+            !portalFlowUnlocked
+            && (
+              profileNeedsSelection
+            )
+          );
+      }
+      if (portalRequirementsProceedButton instanceof HTMLButtonElement) {
+        portalRequirementsProceedButton.textContent = portalFlowUnlocked ? "Return to application" : introMeta.primaryLabel;
+        portalRequirementsProceedButton.disabled = false;
+      }
+      if (!portalFlowUnlocked) {
+        if (portalHeroProgressValue) {
+          portalHeroProgressValue.textContent = introProgressLabels[activeIntroStepKey] || introProgressLabels.welcome;
+        }
+        if (portalHeroProgressBar) {
+          portalHeroProgressBar.style.width = (introProgressWidths[activeIntroStepKey] || introProgressWidths.welcome) + "%";
+        }
+      }
+
+      syncWelcomeAutoAdvance();
+    }
+
     function getApplicantTypeSelectionHint(lockIdentity = Boolean(state.applicationId)) {
       const preview = getPortalPreviewConfig();
-      const isLocal = applicantTypeInput?.value !== "international";
+      const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
+
+      if (!applicantType) {
+        return "Choose the pathway that matches the applying registrar.";
+      }
+
+      const isLocal = applicantType === "local";
 
       if (lockIdentity) {
         return isLocal
@@ -1186,7 +1457,13 @@ export const renderPortalClientScript = () => {
     }
 
     function isOnboardingProfileReady() {
-      if (applicantTypeInput?.value !== "international") {
+      const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
+
+      if (!applicantType) {
+        return false;
+      }
+
+      if (applicantType !== "international") {
         return true;
       }
 
@@ -1221,34 +1498,38 @@ export const renderPortalClientScript = () => {
         portalChecklistPreview.appendChild(item);
       });
 
-      if (portalChecklistMeta) {
-        portalChecklistMeta.textContent = preview.documents.length + " documents";
-      }
     }
 
     function syncPortalEntryPreview() {
       const preview = getPortalPreviewConfig();
 
-      if (portalOverviewIdentityTitle) {
-        portalOverviewIdentityTitle.textContent = preview.overviewIdentityTitle;
-      }
       if (portalOverviewIdentityDescription) {
         portalOverviewIdentityDescription.textContent = preview.overviewIdentityDescription;
       }
-      if (portalProceedButton) {
-        portalProceedButton.textContent = portalFlowUnlocked
-          ? "Return to application"
-          : preview.continueLabel;
-        portalProceedButton.disabled = portalFlowUnlocked
-          ? false
-          : isPortalInactive() || !isOnboardingProfileReady();
-      }
 
       renderPortalChecklistPreview();
+      syncPortalExperienceSurface();
+      syncPortalIntroState();
     }
 
     function setPortalEntryCompact(compact = false) {
       portalEntry?.classList.toggle("is-compact", compact);
+      if (compact) {
+        activeIntroStepKey = "profile";
+      } else {
+        activeIntroStepKey = getDefaultIntroStepKeyForPage();
+      }
+      portalIntroStepPanels.forEach((panel) => {
+        const isCurrent = panel.getAttribute("data-intro-step-panel") === activeIntroStepKey;
+        panel.classList.toggle("is-current", isCurrent);
+        panel.hidden = !isCurrent;
+      });
+      portalIntroStepButtons.forEach((button) => {
+        const isCurrent = button.getAttribute("data-intro-step-target") === activeIntroStepKey;
+        button.classList.toggle("is-current", isCurrent);
+        button.setAttribute("aria-selected", isCurrent ? "true" : "false");
+        button.setAttribute("tabindex", isCurrent ? "0" : "-1");
+      });
       syncPortalEntryPreview();
     }
 
@@ -1289,6 +1570,15 @@ export const renderPortalClientScript = () => {
     }
 
     function scrollToProfileSetup(options = {}) {
+      if (portalPageKey === "application") {
+        navigateToPortalPage("profile", { delay: 0 });
+        return;
+      }
+
+      if (!portalFlowUnlocked) {
+        setActiveIntroStep("profile", { scrollIntoView: false });
+      }
+
       portalEntry?.scrollIntoView({
         behavior: options.smooth === false ? "auto" : "smooth",
         block: "start",
@@ -1558,15 +1848,29 @@ export const renderPortalClientScript = () => {
 
       if (!portalFlowUnlocked) {
         if (!isOnboardingProfileReady()) {
+          const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
           const rawCountry = getRawCountrySelection();
-          const message = !rawCountry
+          const message = !applicantType
+            ? "Choose the registrar type to continue."
+            : !rawCountry
             ? "Choose the country of incorporation to continue."
             : isBlockedInternationalCountry(rawCountry)
               ? "Kenya is only available for local registrar applications."
               : "Choose a country from the suggested list to continue.";
+
+          if (portalPageKey === "application") {
+            navigateToPortalPage("profile", { delay: 0 });
+            return false;
+          }
+
           setFlash(message, true);
+          setActiveIntroStep("profile", { scrollIntoView: false });
           scrollToProfileSetup();
           return false;
+        }
+
+        if (portalPageKey !== "application") {
+          return navigateToPortalPage("application", { delay: 0, loading: false });
         }
 
         setPortalFlowUnlocked(true);
@@ -1598,6 +1902,91 @@ export const renderPortalClientScript = () => {
       return true;
     }
 
+    async function handlePortalIntroBackAction() {
+      const previousStepKey = getPreviousIntroStepKey();
+      if (!previousStepKey) {
+        return false;
+      }
+
+      const initialStepIndex = getIntroStepIndex(getDefaultIntroStepKeyForPage());
+      const currentStepIndex = getIntroStepIndex();
+
+      if (currentStepIndex > initialStepIndex) {
+        window.history.back();
+        return true;
+      }
+
+      await transitionIntroStep(previousStepKey, {
+        scrollIntoView: true,
+        historyMode: "replace",
+      });
+      return true;
+    }
+
+    async function handlePortalProceedAction() {
+      clearWelcomeAutoAdvance();
+
+      if (portalFlowUnlocked) {
+        return openPortalMainExperience();
+      }
+
+      if (activeIntroStepKey === "profile" && !isOnboardingProfileReady()) {
+        const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
+        const rawCountry = getRawCountrySelection();
+        const profileMessage = !applicantType
+          ? "Choose the registrar type to continue."
+          : !rawCountry
+          ? "Choose the country of incorporation to continue."
+          : isBlockedInternationalCountry(rawCountry)
+            ? "Kenya is only available for local registrar applications."
+            : "Choose a country from the suggested list to continue.";
+        setFlash(profileMessage, true);
+        scrollToProfileSetup();
+        return false;
+      }
+
+      if (activeIntroStepKey === "requirements") {
+        if (!portalFlowUnlocked && portalPageKey !== "application") {
+          try {
+            await ensureApplicationStarted();
+          } catch (error) {
+            const friendlyMessage = getFriendlyErrorMessage(
+              error,
+              "We could not start the application yet."
+            );
+            setFlash(friendlyMessage, true);
+            if (
+              error?.message === "APPLICANT_TYPE_REQUIRED"
+              || error?.message === "COUNTRY_OF_INCORPORATION_REQUIRED"
+              || error?.message === "COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL"
+            ) {
+              scrollToProfileSetup();
+            }
+            return false;
+          }
+
+          return navigateToPortalPage("application", { delay: 0, loading: false });
+        }
+
+        return openPortalMainExperience();
+      }
+
+      const nextStepKey = getNextIntroStepKey();
+      if (!nextStepKey) {
+        return openPortalMainExperience();
+      }
+
+      await transitionIntroStep(nextStepKey, { scrollIntoView: true });
+
+      if (nextStepKey === "profile") {
+        window.setTimeout(() => {
+          focusProfileSetup();
+        }, 60);
+      }
+
+      return true;
+    }
+
     function flowSectionRequiresLockedProfile(sectionCode) {
       return sectionCode === DOCUMENT_SECTION_CODE || sectionCode === FINAL_REVIEW_CODE;
     }
@@ -1621,7 +2010,8 @@ export const renderPortalClientScript = () => {
           );
           setFlash(friendlyMessage, true);
           if (
-            error?.message === "COUNTRY_OF_INCORPORATION_REQUIRED"
+            error?.message === "APPLICANT_TYPE_REQUIRED"
+            || error?.message === "COUNTRY_OF_INCORPORATION_REQUIRED"
             || error?.message === "COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL"
           ) {
             scrollToProfileSetup();
@@ -1644,7 +2034,9 @@ export const renderPortalClientScript = () => {
       }
 
       if (options.focusHeading && sectionNode) {
-        const heading = sectionNode.querySelector(".section-rail h2");
+        const heading = flowCurrentStepTitle instanceof HTMLElement
+          ? flowCurrentStepTitle
+          : sectionNode.querySelector(".section-rail h2");
         if (heading instanceof HTMLElement) {
           heading.setAttribute("tabindex", "-1");
           setTimeout(() => {
@@ -1805,6 +2197,46 @@ export const renderPortalClientScript = () => {
       } catch {}
     }
 
+    function savePortalFlashNotice(message, tone = "info") {
+      const nextMessage = String(message || "").trim();
+      if (!nextMessage) {
+        return;
+      }
+
+      try {
+        sessionStorage.setItem(
+          portalFlashNoticeKey,
+          JSON.stringify({
+            message: nextMessage,
+            tone: tone === "error" || tone === "success" ? tone : "info",
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      } catch {}
+    }
+
+    function consumePortalFlashNotice() {
+      try {
+        const raw = sessionStorage.getItem(portalFlashNoticeKey);
+        if (!raw) {
+          return null;
+        }
+
+        sessionStorage.removeItem(portalFlashNoticeKey);
+        const parsed = JSON.parse(raw);
+        if (!isRecord(parsed) || typeof parsed.message !== "string") {
+          return null;
+        }
+
+        return {
+          message: parsed.message.trim(),
+          tone: parsed.tone === "error" || parsed.tone === "success" ? parsed.tone : "info",
+        };
+      } catch {
+        return null;
+      }
+    }
+
     function loadStoredState() {
       try {
         const raw = sessionStorage.getItem(stateKey);
@@ -1872,6 +2304,45 @@ export const renderPortalClientScript = () => {
       } catch {}
     }
 
+    function hasPendingProfileDraft() {
+      const pendingDraft = loadLocalDraft("");
+      const pendingProfile = pendingDraft && isRecord(pendingDraft.profile)
+        ? pendingDraft.profile
+        : null;
+      return Boolean(normalizeApplicantTypeSelection(pendingProfile?.applicantType));
+    }
+
+    function restorePendingProfileSelection() {
+      const pendingDraft = loadLocalDraft("");
+      const pendingProfile = pendingDraft && isRecord(pendingDraft.profile)
+        ? pendingDraft.profile
+        : null;
+
+      if (!pendingProfile || !applicantTypeInput || !countryOfIncorporationInput) {
+        return false;
+      }
+
+      const applicantType = normalizeApplicantTypeSelection(pendingProfile.applicantType);
+      if (!applicantType) {
+        return false;
+      }
+
+      applyProfileSelection(
+        {
+          applicantType,
+          country: typeof pendingProfile.countryOfIncorporation === "string"
+            ? pendingProfile.countryOfIncorporation
+            : "",
+        },
+        {
+          persist: false,
+          remember: true,
+        }
+      );
+
+      return true;
+    }
+
     function persistLocalDraftNow() {
       const draftKey = getDraftStorageKey();
       if (!draftKey) {
@@ -1883,7 +2354,7 @@ export const renderPortalClientScript = () => {
           draftKey,
           JSON.stringify({
             profile: {
-              applicantType: applicantTypeInput?.value || "local",
+              applicantType: normalizeApplicantTypeSelection(applicantTypeInput?.value),
               countryOfIncorporation: String(countryOfIncorporationInput?.value || "").trim(),
             },
             sections: readAllSections(),
@@ -2381,13 +2852,17 @@ export const renderPortalClientScript = () => {
     }
 
     function getApplicantTypeLabel(value) {
-      return value === "international" ? "International Registrar" : "Local Registrar";
+      return value === "international"
+        ? "International Registrar"
+        : value === "local"
+          ? "Local Registrar"
+          : "Choose registrar type";
     }
 
     function getProfileState(overrides = {}) {
       const applicantType = hasOwn(overrides, "applicantType")
-        ? (overrides.applicantType === "international" ? "international" : "local")
-        : (applicantTypeInput?.value === "international" ? "international" : "local");
+        ? normalizeApplicantTypeSelection(overrides.applicantType)
+        : normalizeApplicantTypeSelection(applicantTypeInput?.value);
       const rawCountry = hasOwn(overrides, "country")
         ? String(overrides.country || "").trim()
         : String(countryOfIncorporationInput?.value || "").trim();
@@ -2396,7 +2871,9 @@ export const renderPortalClientScript = () => {
         applicantType,
         country: applicantType === "local"
           ? "Kenya"
-          : String(resolveCountryOption(rawCountry, true) || rawCountry || "").trim(),
+          : applicantType === "international"
+            ? String(resolveCountryOption(rawCountry, true) || rawCountry || "").trim()
+            : "",
       };
     }
 
@@ -2406,6 +2883,9 @@ export const renderPortalClientScript = () => {
 
     function formatProfileLabel(profile = getProfileState()) {
       const normalizedProfile = getProfileState(profile);
+      if (!normalizedProfile.applicantType) {
+        return "Registrar type not selected";
+      }
       return getApplicantTypeLabel(normalizedProfile.applicantType)
         + " • "
         + (normalizedProfile.applicantType === "local"
@@ -2547,12 +3027,13 @@ export const renderPortalClientScript = () => {
     }
 
     function syncApplicantTypeControls() {
-      const value = applicantTypeInput?.value === "international" ? "international" : "local";
+      const value = normalizeApplicantTypeSelection(applicantTypeInput?.value);
 
-      applicantTypeOptionButtons.forEach((button) => {
+      applicantTypeOptionButtons.forEach((button, index) => {
         const selected = button.getAttribute("data-applicant-type-option") === value;
         button.dataset.selected = selected ? "true" : "false";
-        button.setAttribute("aria-pressed", selected ? "true" : "false");
+        button.setAttribute("aria-checked", selected ? "true" : "false");
+        button.tabIndex = selected ? 0 : (!value && index === 0 ? 0 : -1);
         button.disabled = Boolean(applicantTypeInput?.disabled);
       });
     }
@@ -2569,15 +3050,18 @@ export const renderPortalClientScript = () => {
     }
 
     function updateApplicationProfileSummary() {
-      const applicantTypeLabel = getApplicantTypeLabel(applicantTypeInput?.value);
+      const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
+      const applicantTypeLabel = getApplicantTypeLabel(applicantType);
       if (applicationProfileApplicantType) {
         applicationProfileApplicantType.textContent = applicantTypeLabel;
       }
 
       const rawCountry = String(countryOfIncorporationInput?.value || "").trim();
       const resolvedCountry = resolveCountryOption(countryOfIncorporationInput?.value);
-      const countryLabel = applicantTypeInput?.value === "local"
+      const countryLabel = applicantType === "local"
         ? "Kenya"
+        : !applicantType
+          ? "Choose registrar type first"
         : isBlockedInternationalCountry(rawCountry)
           ? "Choose another country"
           : resolvedCountry || rawCountry || "Select country before submission";
@@ -2588,6 +3072,8 @@ export const renderPortalClientScript = () => {
       if (flowProfileContextValue) {
         flowProfileContextValue.textContent = applicantTypeLabel + " • " + countryLabel;
       }
+
+      syncPortalExperienceSurface();
     }
 
     function syncCountryFieldState(lockIdentity = Boolean(state.applicationId)) {
@@ -2595,7 +3081,9 @@ export const renderPortalClientScript = () => {
         return;
       }
 
-      const isLocal = applicantTypeInput.value === "local";
+      const applicantType = normalizeApplicantTypeSelection(applicantTypeInput.value);
+      const isLocal = applicantType === "local";
+      const isInternational = applicantType === "international";
       const wasAutoLocal = countryOfIncorporationInput.dataset.autoLocal === "true";
 
       if (isLocal) {
@@ -2604,13 +3092,15 @@ export const renderPortalClientScript = () => {
       } else if (wasAutoLocal && normalizeCountryName(countryOfIncorporationInput.value) === "kenya") {
         countryOfIncorporationInput.value = "";
         countryOfIncorporationInput.dataset.autoLocal = "false";
-      } else if (!wasAutoLocal) {
+      } else if (!wasAutoLocal || !isInternational) {
         countryOfIncorporationInput.dataset.autoLocal = "false";
       }
 
       applicantTypeInput.disabled = false;
-      countryOfIncorporationInput.disabled = isLocal;
+      countryOfIncorporationInput.disabled = !isInternational;
       profileSetupPanel?.classList.remove("is-locked");
+      profileCountryField?.classList.toggle("is-hidden", !isInternational);
+      profileCountryField?.setAttribute("aria-hidden", !isInternational ? "true" : "false");
 
       if (applicantTypeHint) {
         applicantTypeHint.textContent = getApplicantTypeSelectionHint(lockIdentity);
@@ -2623,7 +3113,7 @@ export const renderPortalClientScript = () => {
       updateApplicationProfileSummary();
       syncPortalEntryPreview();
 
-      if (isLocal) {
+      if (!isInternational) {
         closeCountrySuggestions();
       }
     }
@@ -2807,6 +3297,13 @@ export const renderPortalClientScript = () => {
 
     function resetPortalStateForNewApplication() {
       clearTimeout(localDraftSaveTimer);
+      clearWelcomeAutoAdvance();
+      if (introTransitionTimer) {
+        clearTimeout(introTransitionTimer);
+      }
+      introTransitionTimer = null;
+      setPortalIntroLoading(false);
+      activeIntroStepKey = getDefaultIntroStepKeyForPage();
       resetSectionForms();
       resetSectionStatuses();
       latestBundle = getEmptyBundle();
@@ -2821,14 +3318,18 @@ export const renderPortalClientScript = () => {
       revealFlowSection(flowSectionCodes[0] || "", { remember: false });
     }
 
-    function resetLockedPortal() {
+    function resetLockedPortal(options = {}) {
       resetPortalStateForNewApplication();
       setFormsEnabled(true);
       setSavingState(false);
       setSubmittingState(false);
       setActivationState("idle");
       setFlowVisualState("active");
-      setPortalFlowUnlocked(false);
+      if (options.keepFlowVisible) {
+        setPortalFlowUnlocked(true, { compact: false });
+      } else {
+        setPortalFlowUnlocked(false);
+      }
       syncCountryFieldState(false);
       syncSubmissionFeedback(getEmptyBundle());
       syncPortalEntryPreview();
@@ -3287,8 +3788,12 @@ export const renderPortalClientScript = () => {
               + formatFileSizeLimit(error.details.maxUploadBytes)
               + " or smaller."
             : "The selected document is too large. Choose a smaller file and try again.",
+        INVALID_FILENAME:
+          "Rename the selected document to a simple file name and try again.",
         INVALID_FILE_ENCODING:
           "We could not read the selected document. Choose it again and try once more.",
+        FILE_SIGNATURE_MISMATCH:
+          "The selected file does not look like a valid PDF or image for this upload. Choose the original file and try again.",
         FAILED_TO_READ_FILE:
           "This device could not read the selected document. Choose it again and retry.",
         FILE_READER_UNAVAILABLE:
@@ -3310,14 +3815,18 @@ export const renderPortalClientScript = () => {
           "This request was blocked because it did not come from the trusted portal origin.",
         COUNTRY_OF_INCORPORATION_REQUIRED:
           "Select the country of incorporation before submitting an international application.",
+        APPLICANT_TYPE_REQUIRED:
+          "Choose the registrar type before starting the application.",
         COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL:
           "Kenya is only allowed for local registrar applications. Choose a different country for an international registrar.",
         COUNTRY_OF_INCORPORATION_TOO_LONG:
           "Country of incorporation is too long. Search and select a shorter country name.",
         APPLICATION_ALREADY_SUBMITTED:
           "This application has already been submitted and is now read-only.",
+        APPLICATION_DETAILS_ALREADY_IN_USE:
+          "Sorry, we can't process your application right now. Please review your details and try again.",
         APPLICATION_ALREADY_EXISTS_FOR_COMPANY:
-          "An application already exists for this company PIN or registration number. Use the earlier application or contact support.",
+          "Sorry, we can't process your application right now. Please review your details and try again.",
         DRAFT_OR_RESUME_TOKEN_REQUIRED:
           "Please start a new application or reopen the application first.",
         INVALID_OR_EXPIRED_DRAFT_TOKEN:
@@ -3331,6 +3840,47 @@ export const renderPortalClientScript = () => {
         return message;
       }
       return fallback;
+    }
+
+    function resolvePortalRecoveryPageKey() {
+      return isOnboardingProfileReady() || hasPendingProfileDraft()
+        ? "requirements"
+        : "profile";
+    }
+
+    function redirectToPortalRecoveryPage(message = "", tone = "info") {
+      const recoveryPageKey = resolvePortalRecoveryPageKey();
+      const recoveryPath = buildPortalPagePath(recoveryPageKey);
+      if (!recoveryPath) {
+        if (message) {
+          setFlash(message, tone);
+        }
+        return false;
+      }
+
+      if (message) {
+        savePortalFlashNotice(message, tone);
+      }
+
+      const currentPath = resolvePortalPath(String(window.location.pathname || ""));
+      if (currentPath === recoveryPath) {
+        setPortalIntroLoading(false);
+        setPortalFlowUnlocked(false);
+        setActiveIntroStep(recoveryPageKey, { scrollIntoView: false });
+        if (message) {
+          setFlash(message, tone);
+        }
+        if (recoveryPageKey === "profile" && !isOnboardingProfileReady()) {
+          window.setTimeout(() => {
+            focusProfileSetup();
+          }, 60);
+        }
+        return false;
+      }
+
+      setPortalIntroLoading(false);
+      window.location.replace(recoveryPath);
+      return true;
     }
 
 ${documentWorkflowClientScript}
@@ -3408,8 +3958,12 @@ ${documentWorkflowClientScript}
         return false;
       }
 
-      const applicantType = applicantTypeInput?.value || "local";
+      const applicantType = normalizeApplicantTypeSelection(applicantTypeInput?.value);
       const country = normalizeCountrySelection();
+
+      if (!applicantType) {
+        throw new Error("APPLICANT_TYPE_REQUIRED");
+      }
 
       if (applicantType === "international" && isBlockedInternationalCountry(country)) {
         throw new Error("COUNTRY_OF_INCORPORATION_NOT_ALLOWED_FOR_INTERNATIONAL");
@@ -3576,7 +4130,7 @@ ${documentWorkflowClientScript}
       if (isReadOnly) {
         const completionMessage = getClosedApplicationMessage(applicationStatus, flashMessage);
         clearStoredApplicationState();
-        setFlash(
+        redirectToPortalRecoveryPage(
           completionMessage,
           applicationStatus === "submitted" || applicationStatus === "in_review" ? "success" : "info"
         );
@@ -3710,7 +4264,11 @@ ${documentWorkflowClientScript}
     });
 
     async function initializePortal() {
-      setPortalFlowUnlocked(false);
+      const restoreMessage = restoreSessionState();
+      const restoredPendingProfile = restorePendingProfileSelection();
+      const bootFlashNotice = consumePortalFlashNotice();
+      const shouldBootFlowVisible = portalPageKey === "application" || Boolean(state.applicationId);
+      setPortalFlowUnlocked(shouldBootFlowVisible, { compact: false });
       syncPortalOperationalState();
       updateCountrySuggestions();
       applyFieldMaxLengths();
@@ -3723,9 +4281,27 @@ ${documentWorkflowClientScript}
       syncApplicantTypeControls();
       syncSecondLevelSalesControls();
       syncPortalEntryPreview();
+      setActiveIntroStep(getDefaultIntroStepKeyForPage(), { scrollIntoView: false });
       revealFlowSection(getPreferredFlowSectionCode(), { remember: false });
       void refreshPortalOperationalStatus({ silent: true });
       startPortalStatusPolling();
+
+      portalIntroStepButtons.forEach((button) => {
+        button.addEventListener("click", async () => {
+          const targetStepKey = button.getAttribute("data-intro-step-target");
+          if (!isIntroStepKey(targetStepKey) || portalFlowUnlocked) {
+            return;
+          }
+
+          await transitionIntroStep(targetStepKey, { scrollIntoView: true });
+
+          if (targetStepKey === "profile") {
+            window.setTimeout(() => {
+              focusProfileSetup();
+            }, 60);
+          }
+        });
+      });
 
       applicantTypeOptionButtons.forEach((button) => {
         button.addEventListener("click", async () => {
@@ -3739,6 +4315,42 @@ ${documentWorkflowClientScript}
             applicantType: nextApplicantType,
             country: nextCountry,
           });
+        });
+        button.addEventListener("keydown", async (event) => {
+          if (button.disabled) {
+            return;
+          }
+
+          if (event.key === " " || event.key === "Enter") {
+            event.preventDefault();
+            button.click();
+            return;
+          }
+
+          const currentIndex = applicantTypeOptionButtons.indexOf(button);
+          if (currentIndex < 0) {
+            return;
+          }
+
+          let nextIndex = -1;
+          if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+            nextIndex = currentIndex === applicantTypeOptionButtons.length - 1 ? 0 : currentIndex + 1;
+          } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+            nextIndex = currentIndex === 0 ? applicantTypeOptionButtons.length - 1 : currentIndex - 1;
+          }
+
+          if (nextIndex < 0) {
+            return;
+          }
+
+          event.preventDefault();
+          const nextButton = applicantTypeOptionButtons[nextIndex];
+          if (!(nextButton instanceof HTMLButtonElement)) {
+            return;
+          }
+
+          nextButton.focus();
+          nextButton.click();
         });
       });
 
@@ -3896,33 +4508,101 @@ ${documentWorkflowClientScript}
         });
       });
 
-      portalProceedButton?.addEventListener("click", () => {
-        openPortalMainExperience();
+      portalWelcomeStartButton?.addEventListener("click", () => {
+        void handlePortalProceedAction();
+      });
+      portalProfileBackButton?.addEventListener("click", () => {
+        void handlePortalIntroBackAction();
+      });
+      portalProfileProceedButton?.addEventListener("click", () => {
+        void handlePortalProceedAction();
+      });
+      portalRequirementsBackButton?.addEventListener("click", () => {
+        void handlePortalIntroBackAction();
+      });
+      portalRequirementsProceedButton?.addEventListener("click", () => {
+        void handlePortalProceedAction();
+      });
+      window.addEventListener("popstate", () => {
+        if (introTransitionTimer) {
+          window.clearTimeout(introTransitionTimer);
+          introTransitionTimer = null;
+        }
+
+        if (portalPageKey === "application" || state.applicationId) {
+          return;
+        }
+
+        const locationPageKey = getPortalPageKeyFromLocation();
+        if (locationPageKey === "application") {
+          navigateToPortalPage("application", { delay: 0, loading: false });
+          return;
+        }
+
+        if (!isIntroStepKey(locationPageKey)) {
+          return;
+        }
+
+        setPortalIntroLoading(false);
+        setActiveIntroStep(locationPageKey, { scrollIntoView: false });
+
+        if (locationPageKey === "profile" && !isOnboardingProfileReady()) {
+          window.setTimeout(() => {
+            focusProfileSetup();
+          }, 60);
+        }
       });
 
-      const restoreMessage = restoreSessionState();
-
       if (state.applicationId) {
+        if (portalPageKey !== "application") {
+          navigateToPortalPage("application", { delay: 0 });
+          return;
+        }
+
         try {
           await hydrate(restoreMessage);
           schedulePortalViewportRestore({ delay: 0 });
+          if (bootFlashNotice?.message) {
+            setFlash(bootFlashNotice.message, bootFlashNotice.tone);
+          }
           return;
         } catch (error) {
-          clearStoredApplicationState();
-          setFlash(
-            getFriendlyErrorMessage(
-              error,
-              "We could not reopen the application. Please start again."
-            ),
-            true
+          const recoveryMessage = getFriendlyErrorMessage(
+            error,
+            "We could not reopen the application. Please start again."
           );
+          clearStoredApplicationState();
+          redirectToPortalRecoveryPage(recoveryMessage, "error");
           return;
         }
       }
 
       resetLockedPortal();
-      clearLocalDraft("");
       clearPortalUiState();
+
+      if (portalPageKey === "application") {
+        redirectToPortalRecoveryPage(
+          restoredPendingProfile || isOnboardingProfileReady()
+            ? "Start from the requirements step so we can prepare the application workspace."
+            : "Choose the registrar pathway before opening the application workspace.",
+          "info"
+        );
+        return;
+      }
+
+      if (portalPageKey !== "application") {
+        syncPortalIntroHistory(getRenderableIntroStepKey(), { mode: "replace" });
+      }
+
+      if (bootFlashNotice?.message) {
+        setFlash(bootFlashNotice.message, bootFlashNotice.tone);
+      }
+
+      if (portalPageKey === "profile" && !isOnboardingProfileReady()) {
+        window.setTimeout(() => {
+          focusProfileSetup();
+        }, 60);
+      }
     }
 
     window.__DOTKE_PORTAL_READY = false;
@@ -3954,25 +4634,30 @@ ${documentWorkflowClientScript}
   return scripts;
 };
 
-export const renderPortalPage = (options: {
-  nonce?: string;
-  portalStatus?: PortalStatusViewModel;
-} = {}) => {
-  const body = buildPortalBody(
-    options.portalStatus
-      ? { portalStatus: options.portalStatus }
-      : {}
-  );
+export const renderPortalPage = (options: RenderPortalPageOptions = {}) => {
+  const pageKey = getPortalPageKey(options.pageKey);
+  const pageView = getPortalPageView(pageKey);
+  const isIntroPage = pageKey !== "application";
+  const body = buildPortalBody({
+    ...(options.portalStatus ? { portalStatus: options.portalStatus } : {}),
+    pageKey,
+  });
 
   return renderShell({
-    eyebrow: "",
+    bodyClassName: `portal-body ${isIntroPage ? "portal-body--intro" : "portal-body--workspace"}`,
+    hideHero: true,
+    shellClassName: "portal-shell",
+    heroClassName: `portal-hero${isIntroPage ? " portal-hero--walkthrough" : ""}`,
+    eyebrow: isIntroPage ? "Onboarding portal" : pageView.heroEyebrow,
     title: "KeNIC Registrar Accreditation",
-    titleHtml:
-      '<span class="hero-title-primary">KeNIC</span> <span class="hero-title-muted">Registrar</span> <span class="hero-title-secondary">Accreditation</span>',
-    description:
-      "Complete the registrar accreditation application.",
+    titleHtml: isIntroPage
+      ? '<span class="hero-title-primary">KeNIC</span> <span class="hero-title-muted">Registrar Accreditation</span>'
+      : pageView.heroTitleHtml,
+    description: isIntroPage
+      ? "A short walkthrough before the live application workspace."
+      : pageView.heroDescription,
     body,
-    scriptSrc: `./portal/client.js?v=${encodeURIComponent(options.nonce || "portal-client")}`,
+    scriptSrc: `/portal/client.js?v=${encodeURIComponent(options.nonce || "portal-client")}`,
     ...(options.nonce ? { nonce: options.nonce } : {}),
   });
 };

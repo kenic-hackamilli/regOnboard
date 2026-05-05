@@ -21,6 +21,24 @@ const envSchema = z.object({
   DOCUMENT_SCAN_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
   BLOCK_UPLOADS_ON_SCAN_FAILURE: booleanFlag.default("false"),
   DRAFT_SESSION_TTL_HOURS: z.coerce.number().int().positive().default(72),
+  DRAFT_CLEANUP_INTERVAL_MINUTES: z.coerce.number().int().nonnegative().default(15),
+  DRAFT_CLEANUP_BATCH_SIZE: z.coerce.number().int().positive().default(100),
+  PORTAL_STATUS_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(15000),
+  NOTIFICATION_EMAIL: z.string().trim().optional(),
+  MAIL_MAILER: z.enum(["disabled", "smtp"]).default("disabled"),
+  MAIL_HOST: z.string().trim().optional(),
+  MAIL_PORT: z.coerce.number().int().positive().default(587),
+  MAIL_ENCRYPTION: z.enum(["none", "ssl", "starttls", "tls"]).default("tls"),
+  MAIL_USERNAME: z.string().trim().optional(),
+  MAIL_PASSWORD: z.string().optional(),
+  MAIL_FROM_ADDRESS: z.string().trim().optional(),
+  MAIL_FROM_NAME: z.string().trim().optional(),
+  MAIL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  MAIL_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
+  NOTIFICATION_DISPATCH_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
+  NOTIFICATION_BATCH_SIZE: z.coerce.number().int().positive().default(5),
+  NOTIFICATION_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  NOTIFICATION_STALE_PROCESSING_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   LOCAL_DB_AUTO_START: booleanFlag.optional(),
   AUTO_RUN_MIGRATIONS: booleanFlag.optional(),
   DB_START_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
@@ -51,6 +69,23 @@ if (env.NODE_ENV === "production" && env.ADMIN_API_TOKEN === "change-me-in-produ
   // eslint-disable-next-line no-console
   console.error("ADMIN_API_TOKEN must be changed before running in production.");
   process.exit(1);
+}
+
+if (env.MAIL_MAILER === "smtp") {
+  const requiredMailConfig = [
+    ["MAIL_HOST", env.MAIL_HOST],
+    ["MAIL_USERNAME", env.MAIL_USERNAME],
+    ["MAIL_PASSWORD", env.MAIL_PASSWORD],
+    ["MAIL_FROM_ADDRESS", env.MAIL_FROM_ADDRESS],
+  ].filter((entry) => !entry[1]);
+
+  if (requiredMailConfig.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `SMTP mailer requires these environment variables: ${requiredMailConfig.map(([name]) => name).join(", ")}`
+    );
+    process.exit(1);
+  }
 }
 
 export { env };

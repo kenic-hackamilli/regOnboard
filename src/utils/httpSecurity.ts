@@ -5,9 +5,9 @@ import { ApiError } from "./errors.js";
 
 const APPLICANT_SESSION_COOKIE = "onboard_applicant_session";
 const ADMIN_SESSION_COOKIE = "onboard_admin_session";
-const COOKIE_PROTOCOL = new URL(env.PUBLIC_BASE_URL).protocol;
-const SHOULD_USE_SECURE_COOKIES =
-  env.NODE_ENV === "production" || COOKIE_PROTOCOL === "https:";
+// Local development often runs on http://127.0.0.1 even when PUBLIC_BASE_URL
+// points at an HTTPS tunnel for callbacks or external testing.
+const SHOULD_USE_SECURE_COOKIES = env.NODE_ENV === "production";
 const TRUSTED_ORIGIN = new URL(env.PUBLIC_BASE_URL).origin;
 const ADMIN_SESSION_SECRET = env.ADMIN_SESSION_SECRET || env.ADMIN_API_TOKEN;
 

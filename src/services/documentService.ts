@@ -57,6 +57,15 @@ const FILE_EXTENSION_MIME_TYPES: Record<string, string> = {
   webp: "image/webp",
 };
 
+const MAX_DOCUMENT_FILENAME_LENGTH = 180;
+const INVALID_FILENAME_CHAR_PATTERN = /[\\/\u0000-\u001F\u007F]/;
+const SIGNATURE_REQUIRED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
 const normalizeReportedMimeType = (mimeType: string | null | undefined) => {
   const normalized = String(mimeType || "")
     .trim()
@@ -78,6 +87,32 @@ const inferMimeTypeFromFilename = (filename: string | null | undefined) => {
 
   const extension = match[1]?.toLowerCase() || "";
   return extension ? FILE_EXTENSION_MIME_TYPES[extension] || "" : "";
+};
+
+const normalizeDocumentFilename = (filename: string | null | undefined) =>
+  String(filename || "").trim().replace(/\s+/g, " ");
+
+const assertSafeDocumentFilename = (filename: string | null | undefined) => {
+  const normalized = normalizeDocumentFilename(filename);
+
+  if (!normalized) {
+    throw new ApiError(400, "INVALID_FILENAME");
+  }
+
+  if (normalized.length > MAX_DOCUMENT_FILENAME_LENGTH) {
+    throw new ApiError(400, "INVALID_FILENAME");
+  }
+
+  if (
+    INVALID_FILENAME_CHAR_PATTERN.test(normalized)
+    || normalized === "."
+    || normalized === ".."
+    || normalized.startsWith(".")
+  ) {
+    throw new ApiError(400, "INVALID_FILENAME");
+  }
+
+  return normalized;
 };
 
 const detectMimeTypeFromContent = (content: Buffer) => {
@@ -225,7 +260,7 @@ export const uploadDocument = async (params: {
       throw new ApiError(400, "INVALID_DOCUMENT_SOURCE");
     }
 
-    const application = await getAuthorizedApplication(params.applicationId, params.token);
+    const application = await getAuthorizedApplication(params.applicationId, params.token, client);
     const contentSize = params.content.byteLength;
     if (contentSize <= 0) {
       throw new ApiError(400, "EMPTY_FILE");
@@ -236,7 +271,23 @@ export const uploadDocument = async (params: {
       });
     }
 
-    const resolvedMime = resolveDocumentMimeType(params);
+    const safeFilename = assertSafeDocumentFilename(params.filename);
+    const resolvedMime = resolveDocumentMimeType({
+      ...params,
+      filename: safeFilename,
+    });
+
+    if (
+      SIGNATURE_REQUIRED_MIME_TYPES.has(resolvedMime.normalizedMimeType)
+      && resolvedMime.detectedMimeType !== resolvedMime.normalizedMimeType
+    ) {
+      throw new ApiError(400, "FILE_SIGNATURE_MISMATCH", {
+        detectedMimeType: resolvedMime.detectedMimeType || undefined,
+        filenameMimeType: resolvedMime.filenameMimeType || undefined,
+        providedMimeType: resolvedMime.reportedMimeType || undefined,
+        normalizedMimeType: resolvedMime.normalizedMimeType,
+      });
+    }
 
     const requirement = (
       await client.query<RequirementRow>(
@@ -270,7 +321,7 @@ export const uploadDocument = async (params: {
 
     const checksum = createChecksum(params.content);
     const securityScan = await performDocumentSecurityScan({
-      filename: params.filename,
+      filename: safeFilename,
       mimeType: resolvedMime.normalizedMimeType,
       content: params.content,
     });
@@ -382,7 +433,7 @@ export const uploadDocument = async (params: {
           params.applicationId,
           params.requirementCode,
           params.source,
-          params.filename,
+          safeFilename,
           resolvedMime.normalizedMimeType,
           contentSize,
           blobRow.id,
@@ -419,7 +470,7 @@ export const uploadDocument = async (params: {
         params.applicationId,
         JSON.stringify({
           requirementCode: params.requirementCode,
-          filename: params.filename,
+          filename: safeFilename,
           sizeBytes: contentSize,
           mimeType: resolvedMime.normalizedMimeType,
           documentStatus,

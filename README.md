@@ -7,6 +7,7 @@ Standalone registrar onboarding backend for dotKE.
 - Public applicant draft flow with resume tokens
 - PostgreSQL-backed application storage
 - PostgreSQL-backed document blob storage
+- Submission notification outbox with SMTP delivery retries
 - Admin review API
 - Simple themed portal and admin pages
 - SQL migration for all required tables
@@ -57,6 +58,9 @@ The terminal admin console now shows an applications dashboard with totals, loca
 - Set `ADMIN_SESSION_SECRET` to a long random secret and keep `ADMIN_API_TOKEN` only for initial admin sign-in or terminal/script access
 - For document malware scanning, set `DOCUMENT_SCAN_COMMAND` to an installed scanner command such as `clamdscan --stdout --no-summary {file}`; the backend will also run built-in heuristic checks even when no external scanner is configured
 - If you want uploads to fail closed when the external scanner is unavailable, set `BLOCK_UPLOADS_ON_SCAN_FAILURE=true`
+- To enable application submission emails, set `MAIL_MAILER=smtp` plus `MAIL_HOST`, `MAIL_PORT`, `MAIL_ENCRYPTION`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`, and optionally `MAIL_FROM_NAME`
+- Set `NOTIFICATION_EMAIL` to the commercial-team mailbox that should receive new submission alerts. You can provide multiple recipients separated by commas or semicolons
+- Submission emails are queued in PostgreSQL and dispatched by a background worker with retries, so a successful applicant submission does not depend on the SMTP round-trip finishing inside the request
 - If `DATABASE_URL` still points to `localhost`, the app will only bootstrap its own local cluster when PostgreSQL tools such as `initdb` and `pg_ctl` are installed. Otherwise set `LOCAL_DB_AUTO_START=false` and use an already running PostgreSQL service.
 
 ## Key routes
@@ -76,6 +80,10 @@ The terminal admin console now shows an applications dashboard with totals, loca
 - Applicant access is controlled with draft and resume tokens.
 - The portal only restores an in-progress application from an explicit resume link or the current browser tab session, and it clears submitted or closed applications instead of repopulating their fields into the form.
 - The portal keeps application-linked in-progress edits in browser storage and only persists the full form to PostgreSQL when the applicant explicitly saves or submits.
+- A successful submission queues two outbound communications when SMTP is enabled: a commercial-team alert with a PDF summary attachment, and an acknowledgement email to the applicant.
 - Admin access is controlled with `ADMIN_API_TOKEN`.
 - Documents are stored inside PostgreSQL in a dedicated blob table.
 - `GET /health` returns live database connectivity details and responds with `503` if PostgreSQL is unavailable.
+
+
+npm run db:migrate

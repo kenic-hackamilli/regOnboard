@@ -11,6 +11,8 @@ import { registerHealthRoutes } from "./controllers/healthController.js";
 import { registerPublicRoutes } from "./controllers/publicController.js";
 import { registerRateLimit } from "./middleware/rateLimit.js";
 import { registerSecurity } from "./middleware/security.js";
+import { registerDraftMaintenance } from "./services/draftMaintenanceService.js";
+import { registerSubmissionNotificationDispatch } from "./services/submissionNotificationService.js";
 import { ApiError, isApiError } from "./utils/errors.js";
 import { logger } from "./config/logger.js";
 
@@ -85,6 +87,8 @@ export const start = async () => {
       },
       "Database connected"
     );
+    await registerDraftMaintenance(app as any);
+    await registerSubmissionNotificationDispatch(app as any);
     await app.listen({
       port: env.PORT,
       host: "0.0.0.0",

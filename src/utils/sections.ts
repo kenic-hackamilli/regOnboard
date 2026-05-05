@@ -23,7 +23,8 @@ export type SectionValidationContext = {
 export const COUNTRY_OF_INCORPORATION_MAX_LENGTH = 120;
 
 const NAME_MAX_LENGTH = 160;
-const IDENTIFIER_MAX_LENGTH = 120;
+const TAX_IDENTIFIER_MAX_LENGTH = 32;
+const REGISTRATION_IDENTIFIER_MAX_LENGTH = 64;
 const ADDRESS_MAX_LENGTH = 255;
 const EMAIL_MAX_LENGTH = 254;
 const PHONE_MAX_LENGTH = 30;
@@ -35,20 +36,24 @@ const PHONE_ALLOWED_CHARACTERS = /^[0-9+()\-\s]+$/;
 const UNSAFE_CONTROL_CHAR_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const UNSAFE_CONTROL_CHAR_GLOBAL_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const HTML_TAG_PATTERN = /<[^>]*>/i;
-const DANGEROUS_PROTOCOL_PATTERN = /\b(?:javascript|data|vbscript|file):/i;
+const DANGEROUS_PROTOCOL_PATTERN = /\b(?:javascript|data|vbscript|file|ftp|sftp):/i;
+const OBFUSCATED_PROTOCOL_PATTERN = /\b(?:hxxps?|htpps?):\/\/?/i;
+const MARKDOWN_LINK_PATTERN = /\[[^\]]{1,200}\]\((?:https?:\/\/|www\.|hxxps?:\/\/|ftp:\/\/|mailto:)[^)]+\)/i;
 const ANY_URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+/i;
 const INSECURE_URL_PATTERN = /\b(?:http:\/\/|www\.)\S+/i;
 const COMMAND_LIKE_PATTERN = /(^|[\r\n])\s*(?:sudo\b|rm\s+-rf\b|curl\s+\S+|wget\s+\S+|bash\s+-c\b|sh\s+-c\b|powershell\b|cmd\s*\/c\b)/i;
 const SQL_LIKE_PATTERN = /\b(?:drop\s+table|truncate\s+table|delete\s+from|select\s+\*\s+from)\b/i;
 const HOSTNAME_PATTERN =
   /^(?=.{1,255}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+const BUSINESS_IDENTIFIER_ALLOWED_CHARACTERS_PATTERN = /^[A-Za-z0-9./()\-_\s]+$/;
+const LOCAL_KRA_PIN_PATTERN = /^[A-Z]\d{9}[A-Z]$/i;
 
 export const SECTION_FIELD_MAX_LENGTHS = {
   nameOfApplicant: NAME_MAX_LENGTH,
   companyName: NAME_MAX_LENGTH,
-  companyTin: IDENTIFIER_MAX_LENGTH,
+  companyTin: TAX_IDENTIFIER_MAX_LENGTH,
   addressOfApplicant: ADDRESS_MAX_LENGTH,
-  companyRegistrationNumber: IDENTIFIER_MAX_LENGTH,
+  companyRegistrationNumber: REGISTRATION_IDENTIFIER_MAX_LENGTH,
   telephoneNumber: PHONE_MAX_LENGTH,
   emailAddress: EMAIL_MAX_LENGTH,
   websiteUrl: URL_MAX_LENGTH,
@@ -87,6 +92,60 @@ export const SECTION_FIELD_MAX_LENGTHS = {
   dateOfSignature: SIGNATURE_DATE_MAX_LENGTH,
 } as const;
 
+export const SECTION_LABELS: Record<Exclude<SectionCode, "SECTION_G_DOCUMENTS">, string> = {
+  SECTION_A_GENERAL_INFORMATION: "Section A: General Information",
+  SECTION_B_BUSINESS_INFORMATION: "Section B: Business Information",
+  SECTION_C_DOMAIN_ADMINISTRATION: "Section C: Domain Administration",
+  SECTION_D_BUSINESS_DEVELOPMENT: "Section D: Business Development",
+  SECTION_E_LEGAL_STRUCTURE: "Section E: Legal Structure",
+  SECTION_F_DECLARATION: "Section F: Declaration",
+};
+
+export const SECTION_FIELD_LABELS = {
+  nameOfApplicant: "Name of Applicant",
+  companyName: "Company Name",
+  companyTin: "Company PIN Number / Tax Identification Number (TIN)",
+  addressOfApplicant: "Address of Applicant",
+  companyRegistrationNumber: "Company Registration Number",
+  telephoneNumber: "Telephone Number",
+  emailAddress: "Email Address",
+  websiteUrl: "Website URL (.KE)",
+  contactPerson: "Contact Person",
+  contactPersonTelephoneNumber: "Contact Person's Telephone Number",
+  contactPersonEmailAddress: "Email Address of Contact Person",
+  experienceDescription: "Experience description",
+  numberOfDomainsUnderManagement: "Number of domains under management",
+  averageMonthlyRegistrations: "Average monthly registrations",
+  otherRelatedServices: "Other related services",
+  managementSystems: "Management systems",
+  policyComplianceSystems: "Policy compliance systems",
+  supportSystems: "Support systems",
+  billingSystems: "Billing systems",
+  complaintsSystems: "Complaints systems",
+  resellerArrangements: "Reseller arrangements",
+  securityCapability: "Security capability",
+  ns1: "NS 1",
+  ns2: "NS 2",
+  adminContact: "Admin Contact",
+  adminEmail: "Admin Email",
+  billingContact: "Billing Contact",
+  billingEmail: "Billing Email",
+  targetMarket: "Target market",
+  thirdLevelDomains: "Third Level Domains",
+  intendsSecondLevelSales: "Intends to sell Second Level Domains",
+  secondLevelSalesStrategy: "Second Level Domain strategy",
+  otherRegistrarDomains: "Registrar for other domains",
+  projectedMonthlyKeRegistrations: "Projected monthly .KE registrations",
+  promotionStrategy: "Promotion strategy",
+  businessLocation: "Business location",
+  companyOwnership: "Company ownership",
+  dishonestyConvictionDetails: "Conviction disclosure",
+  fullLegalNameOfApplicant: "Full legal name of applicant",
+  representativeSignature: "Representative signature",
+  nameTitle: "Name title",
+  dateOfSignature: "Date of signature",
+} as const;
+
 type SectionFieldName = keyof typeof SECTION_FIELD_MAX_LENGTHS;
 type SafeTextOptions = {
   allowSecureLinks?: boolean;
@@ -117,6 +176,10 @@ const normalizeHttpsUrlInput = (value: string) => {
     const url = new URL(candidate);
 
     if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    if (url.username || url.password) {
       return null;
     }
 
@@ -206,6 +269,12 @@ const applySafeTextRules = (
     .refine((value) => !DANGEROUS_PROTOCOL_PATTERN.test(value), {
       message: `${label} may not contain unsafe link schemes`,
     })
+    .refine((value) => !OBFUSCATED_PROTOCOL_PATTERN.test(value), {
+      message: `${label} may not contain obfuscated or unsafe link schemes`,
+    })
+    .refine((value) => !MARKDOWN_LINK_PATTERN.test(value), {
+      message: `${label} may not contain embedded markdown-style links`,
+    })
     .refine((value) => !COMMAND_LIKE_PATTERN.test(value) && !SQL_LIKE_PATTERN.test(value), {
       message: `${label} may not contain command-style or executable input`,
     })
@@ -226,6 +295,14 @@ const safeText = (
   fieldName: SectionFieldName,
   options: SafeTextOptions = {}
 ) => applySafeTextRules(validationText(label, SECTION_FIELD_MAX_LENGTHS[fieldName]), label, options);
+
+const identifierText = (
+  label: string,
+  fieldName: Extract<SectionFieldName, "companyTin" | "companyRegistrationNumber">
+) =>
+  safeText(label, fieldName).refine((value) => BUSINESS_IDENTIFIER_ALLOWED_CHARACTERS_PATTERN.test(value), {
+    message: `${label} may only include letters, numbers, spaces, slashes, hyphens, periods, parentheses, and underscores`,
+  });
 
 const wholeNumberText = (
   label: string,
@@ -344,6 +421,12 @@ const websiteText = z.preprocess(
   .refine((value) => !DANGEROUS_PROTOCOL_PATTERN.test(value), {
     message: "Website URL (.KE) may not contain unsafe link schemes",
   })
+  .refine((value) => !OBFUSCATED_PROTOCOL_PATTERN.test(value), {
+    message: "Website URL (.KE) may not contain obfuscated or unsafe link schemes",
+  })
+  .refine((value) => !MARKDOWN_LINK_PATTERN.test(value), {
+    message: "Website URL (.KE) may not contain embedded markdown-style links",
+  })
   .refine((value) => Boolean(normalizeHttpsUrlInput(value)), {
     message: "Website URL (.KE) must be a valid https:// URL",
   })
@@ -355,9 +438,12 @@ const buildSectionSchemas = (context: SectionValidationContext = {}) =>
       .object({
         nameOfApplicant: safeText("Name of Applicant", "nameOfApplicant"),
         companyName: safeText("Company Name", "companyName"),
-        companyTin: safeText("Company PIN Number / Tax Identification Number (TIN)", "companyTin"),
+        companyTin: identifierText(
+          "Company PIN Number / Tax Identification Number (TIN)",
+          "companyTin"
+        ),
         addressOfApplicant: safeText("Address of Applicant", "addressOfApplicant"),
-        companyRegistrationNumber: safeText(
+        companyRegistrationNumber: identifierText(
           "Company Registration Number",
           "companyRegistrationNumber"
         ),
@@ -375,6 +461,14 @@ const buildSectionSchemas = (context: SectionValidationContext = {}) =>
         ),
       })
       .superRefine((value, ctx) => {
+        if (isKenyanContext(context) && !LOCAL_KRA_PIN_PATTERN.test(value.companyTin)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["companyTin"],
+            message: "Company PIN Number / Tax Identification Number (TIN) must use a valid KRA PIN format such as A123456789B",
+          });
+        }
+
         if (!isKenyanContext(context)) {
           return;
         }

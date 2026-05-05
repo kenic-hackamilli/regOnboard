@@ -13,6 +13,10 @@ import {
   sectionSchemas,
   validateSection,
 } from "../utils/sections.js";
+import {
+  enqueueSubmissionNotifications,
+  type SubmissionSnapshot,
+} from "./submissionNotificationService.js";
 import { createOpaqueToken, createResumeCode, hashToken, hoursFromNow } from "../utils/tokens.js";
 
 type ApplicationRow = QueryResultRow & {
@@ -100,6 +104,12 @@ type DuplicateApplicationRow = QueryResultRow & {
   status: string;
   company_tin: string | null;
   company_registration_number: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+};
+
+type ApplicationAccessRow = ApplicationRow & {
+  session_expires_at: string | null;
 };
 
 type SectionValidationResult = ReturnType<typeof validateSection>;
@@ -111,38 +121,50 @@ type ValidatedFormSection = {
   nextVersion: number;
 };
 
-const APPLICATION_SELECT = `
-  id,
-  applicant_type,
-  status,
-  access_mode,
-  draft_token_hash,
-  resume_token_hash,
-  resume_code,
-  contact_email,
-  contact_phone,
-  contact_verified,
-  country_of_incorporation,
-  company_name,
-  company_registration_number,
-  company_tin,
-  current_section,
-  progress_percent,
-  final_submission_snapshot,
-  submitted_at,
-  created_at,
-  updated_at
-`;
+const getApplicationSelect = (alias?: string) => {
+  const prefix = alias ? `${alias}.` : "";
+
+  return `
+    ${prefix}id,
+    ${prefix}applicant_type,
+    ${prefix}status,
+    ${prefix}access_mode,
+    ${prefix}draft_token_hash,
+    ${prefix}resume_token_hash,
+    ${prefix}resume_code,
+    ${prefix}contact_email,
+    ${prefix}contact_phone,
+    ${prefix}contact_verified,
+    ${prefix}country_of_incorporation,
+    ${prefix}company_name,
+    ${prefix}company_registration_number,
+    ${prefix}company_tin,
+    ${prefix}current_section,
+    ${prefix}progress_percent,
+    ${prefix}final_submission_snapshot,
+    ${prefix}submitted_at,
+    ${prefix}created_at,
+    ${prefix}updated_at
+  `;
+};
+
+const APPLICATION_SELECT = getApplicationSelect();
 
 const FORM_SUBMISSION_FINAL_SECTION =
   FORM_SECTION_CODES[FORM_SECTION_CODES.length - 1] ?? "SECTION_A_GENERAL_INFORMATION";
 const DUPLICATE_APPLICATION_STATUSES = [
+  "draft",
   "collecting_documents",
   "ready_for_submission",
   "submitted",
   "in_review",
   "changes_requested",
   "approved",
+] as const;
+const DRAFT_CLEANUP_CANDIDATE_STATUSES = [
+  "draft",
+  "collecting_documents",
+  "ready_for_submission",
 ] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -159,7 +181,53 @@ const normalizeCountryKey = (value?: string | null) =>
   value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
 
 const normalizeCompanyIdentifier = (value?: string | null) =>
-  value?.trim().toLowerCase().replace(/\s+/g, " ") || "";
+  value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "";
+
+const normalizeContactEmail = (value?: string | null) =>
+  value?.trim().toLowerCase() || "";
+
+const normalizeContactPhone = (value?: string | null) => {
+  const digits = value?.replace(/\D/g, "") || "";
+
+  if (!digits) {
+    return "";
+  }
+
+  if (digits.length === 10 && digits.startsWith("0")) {
+    return `254${digits.slice(1)}`;
+  }
+
+  return digits;
+};
+
+const getNormalizedIdentifierSql = (columnName: "company_tin" | "company_registration_number") =>
+  `REGEXP_REPLACE(LOWER(BTRIM(COALESCE(${columnName}, ''))), '[^a-z0-9]+', '', 'g')`;
+
+const getNormalizedPhoneSql = (columnName: "contact_phone") =>
+  `CASE
+    WHEN REGEXP_REPLACE(COALESCE(${columnName}, ''), '[^0-9]+', '', 'g') ~ '^0[0-9]{9}$'
+      THEN '254' || SUBSTRING(REGEXP_REPLACE(COALESCE(${columnName}, ''), '[^0-9]+', '', 'g') FROM 2)
+    ELSE REGEXP_REPLACE(COALESCE(${columnName}, ''), '[^0-9]+', '', 'g')
+  END`;
+
+type ApplicationIdentityFields = {
+  companyTin?: string | null;
+  companyRegistrationNumber?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+};
+
+const extractSectionAIdentityFields = (
+  sectionA: Partial<SectionPayloadMap["SECTION_A_GENERAL_INFORMATION"]> | null | undefined
+): ApplicationIdentityFields => ({
+  companyTin: typeof sectionA?.companyTin === "string" ? sectionA.companyTin : null,
+  companyRegistrationNumber:
+    typeof sectionA?.companyRegistrationNumber === "string"
+      ? sectionA.companyRegistrationNumber
+      : null,
+  contactEmail: typeof sectionA?.emailAddress === "string" ? sectionA.emailAddress : null,
+  contactPhone: typeof sectionA?.telephoneNumber === "string" ? sectionA.telephoneNumber : null,
+});
 
 const normalizeCountryOfIncorporation = (
   applicantType: ApplicantType,
@@ -333,20 +401,29 @@ const deriveApplicationStatus = (
   return "draft";
 };
 
-const findDuplicateCompanyApplication = async (
+const findDuplicateApplicationIdentity = async (
   client: PoolClient,
   params: {
     applicationId: string;
     companyTin?: string | null;
     companyRegistrationNumber?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
   }
 ) => {
   const normalizedTin = normalizeCompanyIdentifier(params.companyTin);
   const normalizedRegistrationNumber = normalizeCompanyIdentifier(
     params.companyRegistrationNumber
   );
+  const normalizedContactEmail = normalizeContactEmail(params.contactEmail);
+  const normalizedContactPhone = normalizeContactPhone(params.contactPhone);
 
-  if (!normalizedTin && !normalizedRegistrationNumber) {
+  if (
+    !normalizedTin
+    && !normalizedRegistrationNumber
+    && !normalizedContactEmail
+    && !normalizedContactPhone
+  ) {
     return null;
   }
 
@@ -358,12 +435,24 @@ const findDuplicateCompanyApplication = async (
 
   if (normalizedTin) {
     values.push(normalizedTin);
-    duplicateClauses.push(`LOWER(BTRIM(company_tin)) = $${values.length}`);
+    duplicateClauses.push(`${getNormalizedIdentifierSql("company_tin")} = $${values.length}`);
   }
 
   if (normalizedRegistrationNumber) {
     values.push(normalizedRegistrationNumber);
-    duplicateClauses.push(`LOWER(BTRIM(company_registration_number)) = $${values.length}`);
+    duplicateClauses.push(
+      `${getNormalizedIdentifierSql("company_registration_number")} = $${values.length}`
+    );
+  }
+
+  if (normalizedContactEmail) {
+    values.push(normalizedContactEmail);
+    duplicateClauses.push(`LOWER(BTRIM(COALESCE(contact_email, ''))) = $${values.length}`);
+  }
+
+  if (normalizedContactPhone) {
+    values.push(normalizedContactPhone);
+    duplicateClauses.push(`${getNormalizedPhoneSql("contact_phone")} = $${values.length}`);
   }
 
   if (!duplicateClauses.length) {
@@ -373,7 +462,7 @@ const findDuplicateCompanyApplication = async (
   return (
     await client.query<DuplicateApplicationRow>(
       `
-        SELECT id, status, company_tin, company_registration_number
+        SELECT id, status, company_tin, company_registration_number, contact_email, contact_phone
         FROM onboard_applications
         WHERE id <> $1
           AND status = ANY($2::text[])
@@ -386,15 +475,17 @@ const findDuplicateCompanyApplication = async (
   ).rows[0] ?? null;
 };
 
-const assertNoDuplicateCompanyApplication = async (
+const assertNoDuplicateApplicationIdentity = async (
   client: PoolClient,
   params: {
     applicationId: string;
     companyTin?: string | null;
     companyRegistrationNumber?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
   }
 ) => {
-  const duplicate = await findDuplicateCompanyApplication(client, params);
+  const duplicate = await findDuplicateApplicationIdentity(client, params);
   if (!duplicate) {
     return;
   }
@@ -415,9 +506,21 @@ const assertNoDuplicateCompanyApplication = async (
     matchedFields.push("companyRegistrationNumber");
   }
 
-  throw new ApiError(409, "APPLICATION_ALREADY_EXISTS_FOR_COMPANY", {
-    existingApplicationId: duplicate.id,
-    existingStatus: duplicate.status,
+  if (
+    normalizeContactEmail(params.contactEmail)
+    && normalizeContactEmail(params.contactEmail) === normalizeContactEmail(duplicate.contact_email)
+  ) {
+    matchedFields.push("contactEmail");
+  }
+
+  if (
+    normalizeContactPhone(params.contactPhone)
+    && normalizeContactPhone(params.contactPhone) === normalizeContactPhone(duplicate.contact_phone)
+  ) {
+    matchedFields.push("contactPhone");
+  }
+
+  throw new ApiError(409, "APPLICATION_DETAILS_ALREADY_IN_USE", {
     matchedFields,
   });
 };
@@ -518,10 +621,9 @@ const persistValidatedApplicationForm = async (
     throw new ApiError(500, "SECTION_A_REQUIRED_FOR_FORM_SAVE");
   }
 
-  await assertNoDuplicateCompanyApplication(client, {
+  await assertNoDuplicateApplicationIdentity(client, {
     applicationId: application.id,
-    companyTin: sectionA.companyTin,
-    companyRegistrationNumber: sectionA.companyRegistrationNumber,
+    ...extractSectionAIdentityFields(sectionA),
   });
 
   await client.query(
@@ -588,21 +690,58 @@ export const recalculateApplicationState = async (
   };
 };
 
-const assertAccess = async (applicationId: string, token: string) => {
+const assertAccess = async (
+  applicationId: string,
+  token: string,
+  client?: PoolClient
+) => {
   const tokenHash = hashToken(token);
-  const rows = await query<ApplicationRow>(
-    `
-      SELECT ${APPLICATION_SELECT}
-      FROM onboard_applications
-      WHERE id = $1
-        AND (draft_token_hash = $2 OR resume_token_hash = $2)
-      LIMIT 1
-    `,
-    [applicationId, tokenHash]
-  );
+  const rows = client
+    ? (
+        await client.query<ApplicationAccessRow>(
+          `
+            SELECT
+              ${getApplicationSelect("a")},
+              s.expires_at AS session_expires_at
+            FROM onboard_applications a
+            LEFT JOIN onboard_draft_sessions s
+              ON s.application_id = a.id
+             AND s.token_hash = $2
+            WHERE a.id = $1
+              AND (a.draft_token_hash = $2 OR a.resume_token_hash = $2)
+            ORDER BY s.expires_at DESC NULLS LAST
+            LIMIT 1
+          `,
+          [applicationId, tokenHash]
+        )
+      ).rows
+    : await query<ApplicationAccessRow>(
+        `
+          SELECT
+            ${getApplicationSelect("a")},
+            s.expires_at AS session_expires_at
+          FROM onboard_applications a
+          LEFT JOIN onboard_draft_sessions s
+            ON s.application_id = a.id
+           AND s.token_hash = $2
+          WHERE a.id = $1
+            AND (a.draft_token_hash = $2 OR a.resume_token_hash = $2)
+          ORDER BY s.expires_at DESC NULLS LAST
+          LIMIT 1
+        `,
+        [applicationId, tokenHash]
+      );
 
   const application = rows[0];
   if (!application) {
+    throw new ApiError(401, "INVALID_OR_EXPIRED_DRAFT_TOKEN");
+  }
+
+  const sessionExpiresAt = application.session_expires_at
+    ? Date.parse(application.session_expires_at)
+    : Number.NaN;
+
+  if (!Number.isFinite(sessionExpiresAt) || sessionExpiresAt <= Date.now()) {
     throw new ApiError(401, "INVALID_OR_EXPIRED_DRAFT_TOKEN");
   }
 
@@ -610,6 +749,7 @@ const assertAccess = async (applicationId: string, token: string) => {
 };
 
 export const getAuthorizedApplication = assertAccess;
+export const getDraftCleanupCandidateStatuses = () => DRAFT_CLEANUP_CANDIDATE_STATUSES;
 
 export const createApplication = async (input: {
   applicantType: string;
@@ -858,7 +998,7 @@ export const saveSection = async (
   payload: unknown
 ) =>
   withTransaction(async (client) => {
-    const application = await assertAccess(applicationId, token);
+    const application = await assertAccess(applicationId, token, client);
     assertWritableApplication(application);
     if (!(sectionCode in sectionSchemas)) {
       throw new ApiError(400, "INVALID_SECTION_CODE");
@@ -905,10 +1045,9 @@ export const saveSection = async (
 
     if (sectionCode === "SECTION_A_GENERAL_INFORMATION" && validation.ok) {
       const sectionA = validation.data as SectionPayloadMap["SECTION_A_GENERAL_INFORMATION"];
-      await assertNoDuplicateCompanyApplication(client, {
+      await assertNoDuplicateApplicationIdentity(client, {
         applicationId,
-        companyTin: sectionA.companyTin,
-        companyRegistrationNumber: sectionA.companyRegistrationNumber,
+        ...extractSectionAIdentityFields(sectionA),
       });
       await client.query(
         `
@@ -972,7 +1111,7 @@ export const saveApplicationForm = async (
   payload: unknown
 ) =>
   withTransaction(async (client) => {
-    const application = await assertAccess(applicationId, token);
+    const application = await assertAccess(applicationId, token, client);
     assertWritableApplication(application);
 
     const validatedSections = await validateApplicationFormPayload(client, application, payload);
@@ -1006,7 +1145,7 @@ export const saveApplicationForm = async (
 
 export const issueResumeToken = async (applicationId: string, token: string) =>
   withTransaction(async (client) => {
-    const application = await assertAccess(applicationId, token);
+    const application = await assertAccess(applicationId, token, client);
     const resumeToken = createOpaqueToken("resume");
     const resumeCode = createResumeCode();
 
@@ -1043,10 +1182,10 @@ export const submitApplication = async (
   payload?: unknown
 ) =>
   withTransaction(async (client) => {
-    const application = await assertAccess(applicationId, token);
+    const application = await assertAccess(applicationId, token, client);
     assertWritableApplication(application);
 
-    let currentApplication = application;
+    let currentApplication: ApplicationRow = application;
     let sections = await getSections(client, applicationId);
     let documents = await getChecklistDocuments(client, applicationId, application.applicant_type);
     let readiness = computeReadiness(sections, documents);
@@ -1073,6 +1212,18 @@ export const submitApplication = async (
         progressPercent: nextState.progressPercent,
       };
     }
+
+    const sectionAIdentity = extractSectionAIdentityFields(
+      (
+        sections.find((section) => section.section_code === "SECTION_A_GENERAL_INFORMATION")
+          ?.data as Partial<SectionPayloadMap["SECTION_A_GENERAL_INFORMATION"]> | undefined
+      ) ?? null
+    );
+
+    await assertNoDuplicateApplicationIdentity(client, {
+      applicationId,
+      ...sectionAIdentity,
+    });
 
     if (!readiness.readyForSubmission) {
       throw new ApiError(400, "APPLICATION_NOT_READY_FOR_SUBMISSION", {
@@ -1110,17 +1261,40 @@ export const submitApplication = async (
       )
     ).rows;
 
-    const snapshot = {
-      application: toPublicApplication(currentApplication),
+    const requirementMetadata = new Map(
+      documents.map((document) => [
+        document.requirement_code,
+        {
+          label: document.label,
+          equivalentLabel: document.equivalent_label,
+          description: document.description,
+          isRequired: document.is_required,
+        },
+      ])
+    );
+
+    const snapshotSubmittedAt = new Date().toISOString();
+    const snapshot: SubmissionSnapshot = {
+      application: {
+        ...toPublicApplication(currentApplication),
+        status: "submitted",
+        progressPercent: 100,
+        submittedAt: snapshotSubmittedAt,
+        updatedAt: snapshotSubmittedAt,
+      },
       sections: sections.map((section) => ({
         sectionCode: section.section_code,
-        data: section.data,
+        data: isRecord(section.data) ? section.data : {},
         version: section.version,
         updatedAt: section.updated_at,
       })),
       documents: documentRows.map((document) => ({
         id: document.id,
         requirementCode: document.requirement_code,
+        label: requirementMetadata.get(document.requirement_code)?.label || null,
+        equivalentLabel: requirementMetadata.get(document.requirement_code)?.equivalentLabel || null,
+        description: requirementMetadata.get(document.requirement_code)?.description || null,
+        isRequired: requirementMetadata.get(document.requirement_code)?.isRequired ?? true,
         source: document.source,
         originalName: document.original_name,
         mimeType: document.mime_type,
@@ -1129,7 +1303,7 @@ export const submitApplication = async (
         documentStatus: document.document_status,
         validationResults: document.validation_results,
       })),
-      submittedAt: new Date().toISOString(),
+      submittedAt: snapshotSubmittedAt,
     };
 
     const updatedApplication = (
@@ -1166,8 +1340,17 @@ export const submitApplication = async (
       throw new ApiError(500, "FAILED_TO_SUBMIT_APPLICATION");
     }
 
+    const queuedNotifications = await enqueueSubmissionNotifications(client, {
+      applicationId,
+      reviewTaskId: reviewTask.id,
+      snapshot,
+    });
+
     await recordEvent(client, applicationId, "applicant", null, "application_submitted", {
       reviewTaskId: reviewTask.id,
+      notificationsQueued: queuedNotifications.totalQueued,
+      commercialNotificationsQueued: queuedNotifications.commercialRecipientCount,
+      applicantNotificationsQueued: queuedNotifications.applicantRecipientCount,
     });
 
     return {

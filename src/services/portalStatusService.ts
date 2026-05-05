@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { query, withTransaction } from "../config/db.js";
+import { env } from "../config/env.js";
 import { ApiError } from "../utils/errors.js";
 
 const APPLICANT_PORTAL_KEY = "applicant_portal";
@@ -12,6 +13,11 @@ type PortalRuntimeRow = {
   reason: string | null;
   updated_by: string | null;
   updated_at: string;
+};
+
+type PortalStatusCacheEntry = {
+  value: ApplicantPortalStatus;
+  expiresAtMs: number;
 };
 
 export type ApplicantPortalStatus = {
@@ -68,6 +74,17 @@ const toApplicantPortalStatus = (row: PortalRuntimeRow | undefined): ApplicantPo
   updatedAt: row?.updated_at ?? new Date(0).toISOString(),
 });
 
+let portalStatusCache: PortalStatusCacheEntry | null = null;
+
+const cachePortalStatus = (status: ApplicantPortalStatus) => {
+  portalStatusCache = {
+    value: status,
+    expiresAtMs: Date.now() + env.PORTAL_STATUS_CACHE_TTL_MS,
+  };
+
+  return status;
+};
+
 const getPortalRuntimeStateRow = async (client?: PoolClient) => {
   const rows = client
     ? (
@@ -94,8 +111,24 @@ const getPortalRuntimeStateRow = async (client?: PoolClient) => {
   return rows[0];
 };
 
-export const getApplicantPortalStatus = async (): Promise<ApplicantPortalStatus> =>
-  toApplicantPortalStatus(await getPortalRuntimeStateRow());
+export const getApplicantPortalStatus = async (
+  options: {
+    client?: PoolClient;
+    fresh?: boolean;
+  } = {}
+): Promise<ApplicantPortalStatus> => {
+  if (!options.fresh && !options.client && portalStatusCache && portalStatusCache.expiresAtMs > Date.now()) {
+    return portalStatusCache.value;
+  }
+
+  const status = toApplicantPortalStatus(await getPortalRuntimeStateRow(options.client));
+
+  if (options.fresh) {
+    return status;
+  }
+
+  return cachePortalStatus(status);
+};
 
 export const setApplicantPortalStatus = async (input: {
   status: string;
@@ -133,12 +166,12 @@ export const setApplicantPortalStatus = async (input: {
       ]
     );
 
-    return toApplicantPortalStatus(result.rows[0]);
+    return cachePortalStatus(toApplicantPortalStatus(result.rows[0]));
   });
 };
 
 export const assertApplicantPortalAcceptingWrites = async () => {
-  const portalStatus = await getApplicantPortalStatus();
+  const portalStatus = await getApplicantPortalStatus({ fresh: true });
   if (portalStatus.status !== "inactive") {
     return portalStatus;
   }
