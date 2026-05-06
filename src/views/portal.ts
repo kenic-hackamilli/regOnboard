@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { SECTION_FIELD_MAX_LENGTHS } from "../utils/sections.js";
 import { buildPortalBody } from "./portal/body.js";
 import { documentWorkflowClientScript } from "./portal/documentWorkflow.js";
@@ -137,15 +138,19 @@ export const renderPortalClientScript = () => {
     const profileSwitchNextValue = document.getElementById("profileSwitchNextValue");
     const profileSwitchCancel = document.getElementById("profileSwitchCancel");
     const profileSwitchConfirm = document.getElementById("profileSwitchConfirm");
-    const flowCurrentStepLabel = document.getElementById("flowCurrentStepLabel");
-    const flowCurrentStepTitle = document.getElementById("flowCurrentStepTitle");
-    const flowCurrentStepDescription = document.getElementById("flowCurrentStepDescription");
-    const flowStepCounter = document.getElementById("flowStepCounter");
     const flowProgressValue = document.getElementById("flowProgressValue");
-    const flowStepTabs = document.getElementById("flowStepTabs");
+    const flowStepTabsDrawer = document.getElementById("flowStepTabsDrawer");
     const flowHeader = document.querySelector(".flow-header");
-    const flowProfileContext = document.getElementById("flowProfileContext");
-    const flowProfileContextValue = document.getElementById("flowProfileContextValue");
+    const flowSectionMenuButton = document.getElementById("flowSectionMenuButton");
+    const flowSectionMenuButtonValue = document.getElementById("flowSectionMenuButtonValue");
+    const flowSectionMenuButtonMeta = document.getElementById("flowSectionMenuButtonMeta");
+    const flowSectionDrawerBackdrop = document.getElementById("flowSectionDrawerBackdrop");
+    const flowSectionDrawerCloseButton = document.getElementById("flowSectionDrawerCloseButton");
+    const flowSectionDrawerPathway = document.getElementById("flowSectionDrawerPathway");
+    const flowSectionDrawerPathwayValue = document.getElementById("flowSectionDrawerPathwayValue");
+    const flowSectionDrawerStep = document.getElementById("flowSectionDrawerStep");
+    const flowSectionDrawerStatus = document.getElementById("flowSectionDrawerStatus");
+    const flowDrawerProgressValue = document.getElementById("flowDrawerProgressValue");
     const phoneFieldDecorators = [
       {
         input: document.querySelector('input[name="telephoneNumber"]'),
@@ -185,6 +190,8 @@ export const renderPortalClientScript = () => {
     );
     const pendingDocumentUploads = new Set();
     let activeFlowSectionCode = "";
+    let flowSectionDrawerOpen = false;
+    let flowSectionDrawerReturnFocus = null;
     const IMAGE_UPLOAD_MAX_DIMENSION = 2200;
     const IMAGE_UPLOAD_QUALITY = 0.82;
     const SUBMISSION_RECEIVED_MESSAGE =
@@ -199,15 +206,31 @@ export const renderPortalClientScript = () => {
       SECTION_F_DECLARATION: { label: "Section F: Declaration" },
     };
     const FLOW_TAB_LABELS = {
-      SECTION_A_GENERAL_INFORMATION: "General Info",
+      SECTION_A_GENERAL_INFORMATION: "General",
       SECTION_B_BUSINESS_INFORMATION: "Business",
       SECTION_C_DOMAIN_ADMINISTRATION: "Domains",
       SECTION_D_BUSINESS_DEVELOPMENT: "Growth",
       SECTION_E_LEGAL_STRUCTURE: "Legal",
-      SECTION_F_DECLARATION: "Declaration",
-      SECTION_G_SUPPORTING_DOCUMENTS: "Documents",
+      SECTION_F_DECLARATION: "Declare",
+      SECTION_G_SUPPORTING_DOCUMENTS: "Docs",
       FINAL_REVIEW: "Review",
     };
+
+    function postPortalBridgeEvent(type, payload = {}) {
+      const bridge = window.ReactNativeWebView;
+      if (!bridge || typeof bridge.postMessage !== "function") {
+        return;
+      }
+
+      try {
+        bridge.postMessage(JSON.stringify({
+          source: "dotke-portal",
+          type,
+          payload,
+        }));
+      } catch {}
+    }
+
     const PORTAL_ENTRY_PREVIEW = {
       local: {
         selectionHint:
@@ -602,8 +625,23 @@ export const renderPortalClientScript = () => {
       return "welcome";
     }
 
+    function syncPortalPresentationMode(pageKey = getPortalPageKeyFromLocation()) {
+      const resolvedPageKey = pageKey === "profile" || pageKey === "requirements" || pageKey === "application"
+        ? pageKey
+        : "welcome";
+      const showWorkspacePresentation = resolvedPageKey === "application" || portalFlowUnlocked;
+
+      document.body.classList.toggle("portal-body--workspace", showWorkspacePresentation);
+      document.body.classList.toggle("portal-body--intro", !showWorkspacePresentation);
+      document.body.dataset.portalPageKey = resolvedPageKey;
+
+      if (portalEntry) {
+        portalEntry.classList.toggle("portal-entry--application", showWorkspacePresentation);
+      }
+    }
+
     function syncPortalIntroHistory(stepKey, options = {}) {
-      if (!isIntroStepKey(stepKey) || portalPageKey === "application" || state.applicationId) {
+      if (!isIntroStepKey(stepKey) || portalPageKey === "application") {
         return false;
       }
 
@@ -621,6 +659,33 @@ export const renderPortalClientScript = () => {
       const historyMethod = options.mode === "replace" ? "replaceState" : "pushState";
 
       if (currentPath === nextPath && currentState.portalIntroStep === stepKey && options.force !== true) {
+        return false;
+      }
+
+      window.history[historyMethod](nextState, document.title, nextPath);
+      return true;
+    }
+
+    function syncPortalApplicationHistory(options = {}) {
+      const nextPath = buildPortalPagePath("application");
+      if (!nextPath) {
+        return false;
+      }
+
+      const currentPath = resolvePortalPath(String(window.location.pathname || ""));
+      const currentState = isRecord(window.history.state) ? window.history.state : {};
+      const nextState = {
+        ...currentState,
+        portalIntroStep: "requirements",
+        portalWorkspaceOpen: true,
+      };
+      const historyMethod = options.mode === "replace" ? "replaceState" : "pushState";
+
+      if (
+        currentPath === nextPath
+        && currentState.portalWorkspaceOpen === true
+        && options.force !== true
+      ) {
         return false;
       }
 
@@ -655,6 +720,34 @@ export const renderPortalClientScript = () => {
       return true;
     }
 
+    function restorePortalApplicationWorkspace(options = {}) {
+      if (!state.applicationId) {
+        return false;
+      }
+
+      setPortalIntroLoading(false);
+      restoreSavedApplicationProfileSelection();
+      setActiveIntroStep("requirements", { scrollIntoView: false });
+      setPortalFlowUnlocked(true);
+
+      const preferredSectionCode = getPreferredFlowSectionCode();
+      if (preferredSectionCode) {
+        revealFlowSection(preferredSectionCode, { remember: false });
+        schedulePortalViewportRestore({
+          delay: Number.isFinite(Number(options.delay)) ? Number(options.delay) : 0,
+          sectionCode: preferredSectionCode,
+          scroll: options.scroll !== false,
+          focusTarget: options.focusTarget === true,
+        });
+      }
+
+      postPortalBridgeEvent("portal-ready", {
+        pageKey: "application",
+        applicationId: state.applicationId || "",
+      });
+      return true;
+    }
+
     function fromEntries(entries) {
       const record = {};
       entries.forEach((entry) => {
@@ -665,6 +758,91 @@ export const renderPortalClientScript = () => {
         record[entry[0]] = entry[1];
       });
       return record;
+    }
+
+    function trimInlineLabelBoundaryText(node) {
+      while (node.firstChild && node.firstChild.nodeType === Node.TEXT_NODE && !String(node.firstChild.textContent || "").trim()) {
+        node.removeChild(node.firstChild);
+      }
+
+      while (node.lastChild && node.lastChild.nodeType === Node.TEXT_NODE && !String(node.lastChild.textContent || "").trim()) {
+        node.removeChild(node.lastChild);
+      }
+    }
+
+    function normalizeRequiredMarkSpacing(node) {
+      if (!(node instanceof HTMLElement)) {
+        return;
+      }
+
+      node.querySelectorAll(".required-mark").forEach((requiredMark) => {
+        const previousNode = requiredMark.previousSibling;
+        if (previousNode && previousNode.nodeType === Node.TEXT_NODE) {
+          const text = String(previousNode.textContent || "");
+          previousNode.textContent = text.replace(/\s*$/, "\u00A0");
+          return;
+        }
+
+        requiredMark.before(document.createTextNode("\u00A0"));
+      });
+    }
+
+    function normalizeSectionFieldLabels() {
+      document.querySelectorAll(".section-main label, .section-main .field-label-row > span").forEach((node) => {
+        if (!(node instanceof HTMLElement)) {
+          return;
+        }
+
+        if (node.classList.contains("field-label-text")) {
+          normalizeRequiredMarkSpacing(node);
+          return;
+        }
+
+        if (node.matches(".field-label-row > span")) {
+          node.classList.add("field-label-text");
+          normalizeRequiredMarkSpacing(node);
+          return;
+        }
+
+        if (node.querySelector(":scope > .field-label-text")) {
+          const existingLabelText = node.querySelector(":scope > .field-label-text");
+          normalizeRequiredMarkSpacing(existingLabelText);
+          return;
+        }
+
+        const titleNodes = [];
+        Array.from(node.childNodes).some((childNode) => {
+          if (childNode.nodeType === Node.TEXT_NODE) {
+            titleNodes.push(childNode);
+            return false;
+          }
+
+          if (childNode instanceof HTMLElement && childNode.classList.contains("required-mark")) {
+            titleNodes.push(childNode);
+            return false;
+          }
+
+          return true;
+        });
+
+        if (!titleNodes.length) {
+          return;
+        }
+
+        const labelText = document.createElement("span");
+        labelText.className = "field-label-text";
+        titleNodes.forEach((titleNode) => {
+          labelText.appendChild(titleNode);
+        });
+        trimInlineLabelBoundaryText(labelText);
+        normalizeRequiredMarkSpacing(labelText);
+
+        if (!labelText.childNodes.length) {
+          return;
+        }
+
+        node.insertBefore(labelText, node.firstChild);
+      });
     }
 
     function isRecord(value) {
@@ -889,6 +1067,10 @@ export const renderPortalClientScript = () => {
         : null;
     }
 
+    function getFlowSectionHeadingNode(sectionCode) {
+      return getFlowSectionNode(sectionCode)?.querySelector(".section-rail h2") || null;
+    }
+
     function getDocumentCardNode(requirementCode) {
       return requirementCode
         ? document.querySelector('[data-document-requirement="' + requirementCode + '"]')
@@ -913,6 +1095,114 @@ export const renderPortalClientScript = () => {
 
     function getFlowSectionTabLabel(sectionCode) {
       return FLOW_TAB_LABELS[sectionCode] || getFlowSectionMeta(sectionCode).title || sectionCode;
+    }
+
+    function applyFlowStatusChipState(node, statusKind) {
+      if (!(node instanceof HTMLElement)) {
+        return;
+      }
+
+      node.classList.remove("is-pending", "is-active", "is-complete", "is-issue");
+      node.classList.add("is-" + statusKind);
+    }
+
+    function setFlowSectionDrawerOpen(open, options = {}) {
+      flowSectionDrawerOpen = Boolean(open);
+
+      if (flowSectionDrawerBackdrop instanceof HTMLElement) {
+        flowSectionDrawerBackdrop.dataset.open = flowSectionDrawerOpen ? "true" : "false";
+        flowSectionDrawerBackdrop.setAttribute("aria-hidden", flowSectionDrawerOpen ? "false" : "true");
+      }
+
+      if (flowSectionMenuButton instanceof HTMLElement) {
+        flowSectionMenuButton.setAttribute("aria-expanded", flowSectionDrawerOpen ? "true" : "false");
+      }
+
+      document.body.classList.toggle("flow-section-drawer-open", flowSectionDrawerOpen);
+
+      if (flowSectionDrawerOpen) {
+        flowSectionDrawerReturnFocus = options.trigger instanceof HTMLElement
+          ? options.trigger
+          : flowSectionMenuButton instanceof HTMLElement
+            ? flowSectionMenuButton
+            : null;
+
+        window.setTimeout(() => {
+          if (flowSectionDrawerCloseButton instanceof HTMLElement) {
+            flowSectionDrawerCloseButton.focus();
+          }
+        }, 40);
+        return;
+      }
+
+      const restoreFocus = options.restoreFocus !== false ? flowSectionDrawerReturnFocus : null;
+      flowSectionDrawerReturnFocus = null;
+
+      if (restoreFocus instanceof HTMLElement) {
+        window.setTimeout(() => {
+          restoreFocus.focus();
+        }, 40);
+      }
+    }
+
+    function openFlowSectionDrawer(trigger = null) {
+      setFlowSectionDrawerOpen(true, { trigger });
+    }
+
+    function closeFlowSectionDrawer(options = {}) {
+      setFlowSectionDrawerOpen(false, options);
+    }
+
+    function buildFlowDrawerStepButton(sectionCode, currentSectionCode) {
+      const button = document.createElement("button");
+      const isActive = sectionCode === currentSectionCode;
+      const statusKind = getFlowSectionStatusKind(sectionCode);
+      const statusText = getFlowSectionStatusText(sectionCode);
+      const meta = getFlowSectionMeta(sectionCode);
+
+      button.type = "button";
+      button.className = "flow-drawer-step is-" + statusKind + (isActive ? " is-active" : "");
+      button.setAttribute(
+        "aria-label",
+        (meta.step || "Section") + " " + (meta.title || getSectionLabel(sectionCode)) + " • " + statusText
+      );
+
+      if (isActive) {
+        button.setAttribute("aria-current", "step");
+      }
+
+      const top = document.createElement("div");
+      top.className = "flow-drawer-step-top";
+
+      const step = document.createElement("span");
+      step.className = "flow-drawer-step-kicker";
+      step.textContent = meta.step || "Section";
+
+      const status = document.createElement("span");
+      status.className = "flow-drawer-step-status";
+      status.textContent = statusText;
+
+      const title = document.createElement("strong");
+      title.className = "flow-drawer-step-title";
+      title.textContent = meta.title || getSectionLabel(sectionCode);
+
+      top.append(step, status);
+      button.append(top, title);
+      button.addEventListener("click", () => {
+        closeFlowSectionDrawer({ restoreFocus: false });
+        void goToFlowSection(sectionCode, { focusHeading: true });
+      });
+
+      return button;
+    }
+
+    function renderFlowStepTabs(currentSectionCode) {
+      if (flowStepTabsDrawer) {
+        flowStepTabsDrawer.replaceChildren(
+          ...flowSectionCodes.map((sectionCode) =>
+            buildFlowDrawerStepButton(sectionCode, currentSectionCode))
+        );
+      }
     }
 
     function normalizeApplicantTypeSelection(value) {
@@ -976,6 +1266,8 @@ export const renderPortalClientScript = () => {
       portalWelcomeStartButton?.classList.toggle("is-loading", Boolean(loading));
       portalProfileProceedButton?.classList.toggle("is-loading", Boolean(loading));
       portalProfileBackButton?.classList.toggle("is-loading", Boolean(loading));
+      portalRequirementsProceedButton?.classList.toggle("is-loading", Boolean(loading));
+      portalRequirementsBackButton?.classList.toggle("is-loading", Boolean(loading));
     }
 
     function clearWelcomeAutoAdvance() {}
@@ -1042,6 +1334,7 @@ export const renderPortalClientScript = () => {
 
       if (nextStepKey === activeIntroStepKey) {
         setActiveIntroStep(nextStepKey, options);
+        postPortalBridgeEvent("portal-intro-step", { stepKey: nextStepKey });
         return true;
       }
 
@@ -1059,6 +1352,7 @@ export const renderPortalClientScript = () => {
         });
       }
       setPortalIntroLoading(false);
+      postPortalBridgeEvent("portal-intro-step", { stepKey: nextStepKey });
       return true;
     }
 
@@ -1410,7 +1704,10 @@ export const renderPortalClientScript = () => {
           );
       }
       if (portalRequirementsProceedButton instanceof HTMLButtonElement) {
-        portalRequirementsProceedButton.textContent = portalFlowUnlocked ? "Return to application" : introMeta.primaryLabel;
+        portalRequirementsProceedButton.textContent =
+          portalFlowUnlocked || Boolean(state.applicationId)
+            ? "Return to application"
+            : introMeta.primaryLabel;
         portalRequirementsProceedButton.disabled = false;
       }
       if (!portalFlowUnlocked) {
@@ -1535,6 +1832,7 @@ export const renderPortalClientScript = () => {
 
     function setPortalFlowUnlocked(unlocked, options = {}) {
       portalFlowUnlocked = Boolean(unlocked);
+      syncPortalPresentationMode();
 
       if (portalEntry) {
         portalEntry.classList.toggle("has-entered-flow", portalFlowUnlocked);
@@ -1542,8 +1840,8 @@ export const renderPortalClientScript = () => {
       if (portalMainExperience) {
         portalMainExperience.hidden = !portalFlowUnlocked;
       }
-      if (flowProfileContext) {
-        flowProfileContext.hidden = !portalFlowUnlocked;
+      if (flowSectionDrawerPathway) {
+        flowSectionDrawerPathway.hidden = !portalFlowUnlocked;
       }
 
       if (portalFlowUnlocked) {
@@ -1551,6 +1849,7 @@ export const renderPortalClientScript = () => {
         return;
       }
 
+      closeFlowSectionDrawer({ restoreFocus: false });
       setPortalEntryCompact(false);
     }
 
@@ -1713,56 +2012,42 @@ export const renderPortalClientScript = () => {
       const currentIndex = Math.max(0, getFlowSectionIndex(currentSectionCode));
       const totalSteps = flowSectionCodes.length || 1;
       const progressPercent = ((currentIndex + 1) / totalSteps) * 100;
+      const statusKind = getFlowSectionStatusKind(currentSectionCode);
+      const statusText = getFlowSectionStatusText(currentSectionCode);
+      const stepCounterText = "Step " + (currentIndex + 1) + " of " + totalSteps;
 
-      if (flowCurrentStepLabel) {
-        flowCurrentStepLabel.textContent = currentMeta.step || "Application flow";
+      if (flowSectionMenuButtonValue) {
+        flowSectionMenuButtonValue.textContent = currentMeta.title || getSectionLabel(currentSectionCode);
       }
-      if (flowCurrentStepTitle) {
-        flowCurrentStepTitle.textContent = currentMeta.title || getSectionLabel(currentSectionCode);
+      if (flowSectionMenuButtonMeta) {
+        flowSectionMenuButtonMeta.textContent = (currentIndex + 1) + " / " + totalSteps;
       }
-      if (flowCurrentStepDescription) {
-        flowCurrentStepDescription.textContent = currentMeta.description || "";
+      if (flowSectionMenuButton instanceof HTMLElement) {
+        flowSectionMenuButton.setAttribute(
+          "aria-label",
+          "Open application sections. Current section: "
+            + (currentMeta.title || getSectionLabel(currentSectionCode))
+            + ". "
+            + stepCounterText
+            + ". "
+            + statusText
+        );
       }
-      if (flowStepCounter) {
-        flowStepCounter.textContent =
-          "Step " + (currentIndex + 1) + " of " + totalSteps + " • " + getFlowSectionStatusText(currentSectionCode);
+      if (flowSectionDrawerStep) {
+        flowSectionDrawerStep.textContent = stepCounterText;
+      }
+      if (flowSectionDrawerStatus) {
+        flowSectionDrawerStatus.textContent = statusText;
+        applyFlowStatusChipState(flowSectionDrawerStatus, statusKind);
       }
       if (flowProgressValue) {
         flowProgressValue.style.width = progressPercent.toFixed(2) + "%";
       }
-
-      if (flowStepTabs) {
-        flowStepTabs.replaceChildren();
-        flowSectionCodes.forEach((sectionCode) => {
-          const button = document.createElement("button");
-          const isActive = sectionCode === currentSectionCode;
-          const statusKind = getFlowSectionStatusKind(sectionCode);
-          const statusText = getFlowSectionStatusText(sectionCode);
-          button.type = "button";
-          button.className =
-            "flow-step-tab is-" + statusKind + (isActive ? " is-active" : "");
-          button.setAttribute("aria-pressed", isActive ? "true" : "false");
-          button.setAttribute(
-            "aria-label",
-            getFlowSectionTabLabel(sectionCode) + " • " + statusText
-          );
-
-          const indicator = document.createElement("span");
-          indicator.className = "flow-step-tab-indicator";
-          indicator.setAttribute("aria-hidden", "true");
-
-          const label = document.createElement("span");
-          label.className = "flow-step-tab-label";
-          label.textContent = getFlowSectionTabLabel(sectionCode);
-
-          button.appendChild(indicator);
-          button.appendChild(label);
-          button.addEventListener("click", () => {
-            void goToFlowSection(sectionCode, { focusHeading: true });
-          });
-          flowStepTabs.appendChild(button);
-        });
+      if (flowDrawerProgressValue) {
+        flowDrawerProgressValue.style.width = progressPercent.toFixed(2) + "%";
       }
+
+      renderFlowStepTabs(currentSectionCode);
 
       document.querySelectorAll("[data-flow-nav-for]").forEach((node) => {
         const sectionCode = node.getAttribute("data-flow-nav-for") || "";
@@ -1869,12 +2154,23 @@ export const renderPortalClientScript = () => {
           return false;
         }
 
-        if (portalPageKey !== "application") {
-          return navigateToPortalPage("application", { delay: 0, loading: false });
+        if (getPortalPageKeyFromLocation() !== "application") {
+          if (!state.applicationId) {
+            return navigateToPortalPage("application", { delay: 0, loading: false });
+          }
+
+          syncPortalApplicationHistory({
+            mode: options.historyMode === "replace" ? "replace" : "push",
+          });
         }
 
         setPortalFlowUnlocked(true);
       } else {
+        if (getPortalPageKeyFromLocation() !== "application" && state.applicationId) {
+          syncPortalApplicationHistory({
+            mode: options.historyMode === "replace" ? "replace" : "push",
+          });
+        }
         setPortalEntryCompact(true);
       }
 
@@ -1886,19 +2182,24 @@ export const renderPortalClientScript = () => {
 
       if (options.focusFlow !== false) {
         window.setTimeout(() => {
-          if (!(flowCurrentStepTitle instanceof HTMLElement)) {
+          const heading = getFlowSectionHeadingNode(getCurrentFlowSectionCode());
+          if (!(heading instanceof HTMLElement)) {
             return;
           }
 
-          flowCurrentStepTitle.setAttribute("tabindex", "-1");
+          heading.setAttribute("tabindex", "-1");
           try {
-            flowCurrentStepTitle.focus({ preventScroll: true });
+            heading.focus({ preventScroll: true });
           } catch {
-            flowCurrentStepTitle.focus();
+            heading.focus();
           }
         }, 60);
       }
 
+      postPortalBridgeEvent("portal-ready", {
+        pageKey: "application",
+        applicationId: state.applicationId || "",
+      });
       return true;
     }
 
@@ -1946,7 +2247,8 @@ export const renderPortalClientScript = () => {
       }
 
       if (activeIntroStepKey === "requirements") {
-        if (!portalFlowUnlocked && portalPageKey !== "application") {
+        if (!portalFlowUnlocked && !state.applicationId) {
+          setPortalIntroLoading(true);
           try {
             await ensureApplicationStarted();
           } catch (error) {
@@ -1963,12 +2265,12 @@ export const renderPortalClientScript = () => {
               scrollToProfileSetup();
             }
             return false;
+          } finally {
+            setPortalIntroLoading(false);
           }
-
-          return navigateToPortalPage("application", { delay: 0, loading: false });
         }
 
-        return openPortalMainExperience();
+        return openPortalMainExperience({ historyMode: "push" });
       }
 
       const nextStepKey = getNextIntroStepKey();
@@ -2034,9 +2336,7 @@ export const renderPortalClientScript = () => {
       }
 
       if (options.focusHeading && sectionNode) {
-        const heading = flowCurrentStepTitle instanceof HTMLElement
-          ? flowCurrentStepTitle
-          : sectionNode.querySelector(".section-rail h2");
+        const heading = getFlowSectionHeadingNode(targetSectionCode) || sectionNode.querySelector(".section-rail h2");
         if (heading instanceof HTMLElement) {
           heading.setAttribute("tabindex", "-1");
           setTimeout(() => {
@@ -2343,6 +2643,37 @@ export const renderPortalClientScript = () => {
       return true;
     }
 
+    function restoreSavedApplicationProfileSelection() {
+      if (!state.applicationId || !applicantTypeInput || !countryOfIncorporationInput) {
+        return false;
+      }
+
+      const applicationDraft = loadLocalDraft(state.applicationId);
+      const savedProfile = applicationDraft && isRecord(applicationDraft.profile)
+        ? applicationDraft.profile
+        : null;
+      const applicantType = normalizeApplicantTypeSelection(savedProfile?.applicantType);
+
+      if (!savedProfile || !applicantType) {
+        return false;
+      }
+
+      applyProfileSelection(
+        {
+          applicantType,
+          country: typeof savedProfile.countryOfIncorporation === "string"
+            ? savedProfile.countryOfIncorporation
+            : "",
+        },
+        {
+          persist: false,
+          remember: true,
+        }
+      );
+
+      return true;
+    }
+
     function persistLocalDraftNow() {
       const draftKey = getDraftStorageKey();
       if (!draftKey) {
@@ -2403,13 +2734,13 @@ export const renderPortalClientScript = () => {
         sessionRestoreSource = "query";
         saveState();
         clearResumeQueryParams();
-        return "Application reopened.";
+        return "";
       }
 
       loadStoredState();
       if (state.applicationId) {
         sessionRestoreSource = "storage";
-        return "Application reopened.";
+        return "";
       }
 
       return "";
@@ -3069,8 +3400,8 @@ export const renderPortalClientScript = () => {
       if (applicationProfileCountry) {
         applicationProfileCountry.textContent = countryLabel;
       }
-      if (flowProfileContextValue) {
-        flowProfileContextValue.textContent = applicantTypeLabel + " • " + countryLabel;
+      if (flowSectionDrawerPathwayValue) {
+        flowSectionDrawerPathwayValue.textContent = applicantTypeLabel + " • " + countryLabel;
       }
 
       syncPortalExperienceSurface();
@@ -4267,11 +4598,12 @@ ${documentWorkflowClientScript}
       const restoreMessage = restoreSessionState();
       const restoredPendingProfile = restorePendingProfileSelection();
       const bootFlashNotice = consumePortalFlashNotice();
-      const shouldBootFlowVisible = portalPageKey === "application" || Boolean(state.applicationId);
+      const shouldBootFlowVisible = portalPageKey === "application";
       setPortalFlowUnlocked(shouldBootFlowVisible, { compact: false });
       syncPortalOperationalState();
       updateCountrySuggestions();
       applyFieldMaxLengths();
+      normalizeSectionFieldLabels();
       bindInputNormalization();
       bindDraftTracking();
       bindFlowViewportTracking();
@@ -4490,10 +4822,34 @@ ${documentWorkflowClientScript}
         }
       });
 
+      flowSectionMenuButton?.addEventListener("click", () => {
+        if (flowSectionDrawerOpen) {
+          closeFlowSectionDrawer();
+          return;
+        }
+
+        openFlowSectionDrawer(flowSectionMenuButton);
+      });
+
+      flowSectionDrawerCloseButton?.addEventListener("click", () => {
+        closeFlowSectionDrawer();
+      });
+
+      flowSectionDrawerBackdrop?.addEventListener("click", (event) => {
+        if (event.target === flowSectionDrawerBackdrop) {
+          closeFlowSectionDrawer();
+        }
+      });
+
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
           if (profileSwitchRequest) {
             closeProfileSwitchOverlay(false);
+            event.preventDefault();
+            return;
+          }
+          if (flowSectionDrawerOpen) {
+            closeFlowSectionDrawer();
             event.preventDefault();
             return;
           }
@@ -4529,12 +4885,15 @@ ${documentWorkflowClientScript}
           introTransitionTimer = null;
         }
 
-        if (portalPageKey === "application" || state.applicationId) {
+        if (portalPageKey === "application") {
           return;
         }
 
         const locationPageKey = getPortalPageKeyFromLocation();
         if (locationPageKey === "application") {
+          if (restorePortalApplicationWorkspace({ delay: 0 })) {
+            return;
+          }
           navigateToPortalPage("application", { delay: 0, loading: false });
           return;
         }
@@ -4544,7 +4903,42 @@ ${documentWorkflowClientScript}
         }
 
         setPortalIntroLoading(false);
+        if (state.applicationId) {
+          setPortalFlowUnlocked(false, { compact: false });
+          restoreSavedApplicationProfileSelection();
+        }
         setActiveIntroStep(locationPageKey, { scrollIntoView: false });
+        postPortalBridgeEvent("portal-intro-step", { stepKey: locationPageKey });
+
+        if (locationPageKey === "profile" && !isOnboardingProfileReady()) {
+          window.setTimeout(() => {
+            focusProfileSetup();
+          }, 60);
+        }
+      });
+
+      window.addEventListener("pageshow", () => {
+        if (portalPageKey === "application") {
+          return;
+        }
+
+        const locationPageKey = getPortalPageKeyFromLocation();
+        if (locationPageKey === "application") {
+          restorePortalApplicationWorkspace({ delay: 0 });
+          return;
+        }
+
+        if (!isIntroStepKey(locationPageKey)) {
+          return;
+        }
+
+        setPortalIntroLoading(false);
+        if (state.applicationId) {
+          setPortalFlowUnlocked(false, { compact: false });
+          restoreSavedApplicationProfileSelection();
+        }
+        setActiveIntroStep(locationPageKey, { scrollIntoView: false });
+        postPortalBridgeEvent("portal-intro-step", { stepKey: locationPageKey });
 
         if (locationPageKey === "profile" && !isOnboardingProfileReady()) {
           window.setTimeout(() => {
@@ -4555,7 +4949,21 @@ ${documentWorkflowClientScript}
 
       if (state.applicationId) {
         if (portalPageKey !== "application") {
-          navigateToPortalPage("application", { delay: 0 });
+          resetLockedPortal();
+          clearPortalUiState();
+          restoreSavedApplicationProfileSelection();
+          setActiveIntroStep(getDefaultIntroStepKeyForPage(), { scrollIntoView: false });
+
+          if (bootFlashNotice?.message) {
+            setFlash(bootFlashNotice.message, bootFlashNotice.tone);
+          }
+
+          if (portalPageKey === "profile" && !isOnboardingProfileReady()) {
+            window.setTimeout(() => {
+              focusProfileSetup();
+            }, 60);
+          }
+
           return;
         }
 
@@ -4612,6 +5020,10 @@ ${documentWorkflowClientScript}
       .then(() => {
         window.__DOTKE_PORTAL_READY = true;
         window.__DOTKE_PORTAL_INIT_ERROR = "";
+        postPortalBridgeEvent("portal-ready", {
+          pageKey: portalPageKey,
+          applicationId: state.applicationId || "",
+        });
       })
       .catch((error) => {
         const message =
@@ -4620,6 +5032,7 @@ ${documentWorkflowClientScript}
             : "PORTAL_INIT_FAILED";
 
         window.__DOTKE_PORTAL_INIT_ERROR = message;
+        postPortalBridgeEvent("portal-init-error", { message });
         setFlash(
           "We could not finish loading the onboarding portal. Please refresh and try again.",
           true
@@ -4633,6 +5046,11 @@ ${documentWorkflowClientScript}
 
   return scripts;
 };
+
+const PORTAL_CLIENT_ASSET_VERSION = createHash("sha1")
+  .update(renderPortalClientScript())
+  .digest("hex")
+  .slice(0, 12);
 
 export const renderPortalPage = (options: RenderPortalPageOptions = {}) => {
   const pageKey = getPortalPageKey(options.pageKey);
@@ -4657,7 +5075,7 @@ export const renderPortalPage = (options: RenderPortalPageOptions = {}) => {
       ? "A short walkthrough before the live application workspace."
       : pageView.heroDescription,
     body,
-    scriptSrc: `/portal/client.js?v=${encodeURIComponent(options.nonce || "portal-client")}`,
+    scriptSrc: `/portal/client.js?v=${PORTAL_CLIENT_ASSET_VERSION}`,
     ...(options.nonce ? { nonce: options.nonce } : {}),
   });
 };

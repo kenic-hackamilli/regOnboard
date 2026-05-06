@@ -1,25 +1,76 @@
 export const renderApplicationFlow = (options: { hidden?: boolean } = {}) => `
   <div id="portalMainExperience" class="portal-main-experience"${options.hidden === false ? "" : " hidden"}>
-    <section class="flow-header">
-      <div class="flow-header-copy">
-        <div id="flowCurrentStepLabel" class="section-kicker">Section A</div>
-        <h2 id="flowCurrentStepTitle">General Information</h2>
-        <p id="flowCurrentStepDescription">Applicant and contact details.</p>
-        <div id="flowProfileContext" class="flow-profile-context" hidden>
-          <span class="flow-profile-context-label">Selected pathway:</span>
-          <strong id="flowProfileContextValue">Local Registrar • Kenya</strong>
-        </div>
+    <section class="flow-header" aria-label="Application navigation">
+      <div class="flow-header-bar">
+        <button
+          id="flowSectionMenuButton"
+          class="flow-section-menu-button"
+          type="button"
+          aria-controls="flowSectionDrawer"
+          aria-expanded="false"
+          aria-haspopup="dialog"
+        >
+          <span class="flow-section-menu-button-icon" aria-hidden="true">
+            <span class="flow-section-menu-button-bar"></span>
+            <span class="flow-section-menu-button-bar"></span>
+            <span class="flow-section-menu-button-bar"></span>
+          </span>
+          <span class="flow-section-menu-button-copy">
+            <span class="flow-section-menu-button-label">Application sections</span>
+            <strong id="flowSectionMenuButtonValue">General Information</strong>
+          </span>
+          <span id="flowSectionMenuButtonMeta" class="flow-section-menu-button-meta">1 / 8</span>
+        </button>
       </div>
-      <div class="flow-header-meta">
-        <div id="flowStepCounter" class="flow-step-counter">Step 1 of 8</div>
-        <div class="flow-progress-track" aria-hidden="true">
-          <span id="flowProgressValue" class="flow-progress-value"></span>
-        </div>
+      <div class="flow-progress-track" aria-hidden="true">
+        <span id="flowProgressValue" class="flow-progress-value"></span>
       </div>
-      <div id="flowStepTabs" class="flow-step-tabs" aria-label="Application steps"></div>
     </section>
 
-    <div id="applicationFlow" class="application-flow is-paged">
+    <div
+      id="flowSectionDrawerBackdrop"
+      class="flow-section-drawer-backdrop"
+      data-open="false"
+      aria-hidden="true"
+    >
+      <aside
+        id="flowSectionDrawer"
+        class="flow-section-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="flowSectionDrawerTitle"
+      >
+        <div class="flow-section-drawer-header">
+          <div class="flow-section-drawer-copy">
+            <div class="section-kicker">Application sections</div>
+            <h3 id="flowSectionDrawerTitle">Jump between steps</h3>
+            <p>Open any section from here without letting the menu crowd the form workspace.</p>
+          </div>
+
+          <button id="flowSectionDrawerCloseButton" class="flow-section-drawer-close" type="button">
+            Close
+          </button>
+        </div>
+
+        <div class="flow-section-drawer-meta">
+          <div id="flowSectionDrawerPathway" class="flow-summary-chip flow-summary-chip--drawer" hidden>
+            <span class="flow-profile-context-label">Pathway</span>
+            <strong id="flowSectionDrawerPathwayValue">Local Registrar • Kenya</strong>
+          </div>
+          <div id="flowSectionDrawerStep" class="flow-summary-chip flow-summary-chip--drawer">Step 1 of 8</div>
+          <div id="flowSectionDrawerStatus" class="flow-summary-chip flow-summary-chip--status">Not started</div>
+        </div>
+
+        <div class="flow-progress-track flow-progress-track--drawer" aria-hidden="true">
+          <span id="flowDrawerProgressValue" class="flow-progress-value"></span>
+        </div>
+
+        <div id="flowStepTabsDrawer" class="flow-step-drawer-list" aria-label="Application sections"></div>
+      </aside>
+    </div>
+
+    <div class="flow-workspace-grid">
+      <div id="applicationFlow" class="application-flow is-paged">
       <section class="application-section is-current" data-flow-section="SECTION_A_GENERAL_INFORMATION">
         <div class="application-shell">
           <div class="section-rail section-rail--hidden">
@@ -275,6 +326,7 @@ export const renderApplicationFlow = (options: { hidden?: boolean } = {}) => `
           </div>
         </div>
       </section>
+      </div>
     </div>
   </div>
 `;

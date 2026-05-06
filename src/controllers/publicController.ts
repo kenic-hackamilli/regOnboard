@@ -249,7 +249,12 @@ export const registerPublicRoutes = async (app: FastifyInstance) => {
   };
 
   app.get("/portal/client.js", portalClientRouteOptions, async (_request, reply) => {
-    reply.header("Cache-Control", "no-store");
+    reply.header(
+      "Cache-Control",
+      env.NODE_ENV === "production"
+        ? "public, max-age=31536000, immutable"
+        : "no-store"
+    );
     reply.type("application/javascript").send(
       env.NODE_ENV === "production"
         ? portalClientScript
